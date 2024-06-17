@@ -15,9 +15,10 @@
 /* config */
 
 #define PORT 3354
-#define BACKLOG 16
+#define BACKLOG 48
 #define THREADS 16
 #define BUFF_SIZE 4096
+#define REUSEADDR true
 #define DEFAULT_LENGTH
 
 /* typedef */
@@ -63,6 +64,12 @@ main (int argc, char **argv)
   if ((sock = socket (AF_INET, SOCK_STREAM, 0)) == -1)
     error ("create socket failed");
 
+  /* setsockopt */
+  int opt = REUSEADDR;
+  socklen_t opt_len = sizeof (opt);
+  if (setsockopt (sock, SOL_SOCKET, SO_REUSEADDR, &opt, opt_len) != 0)
+    error ("setsockopt failed");
+
   /* bind */
   if (bind (sock, (void *)&addr, sizeof (addr)) == -1)
     error ("bind addr failed");
@@ -102,15 +109,10 @@ serve (void *arg)
   client_t *clnt = (client_t *)arg;
   int sock = clnt->sock;
 
-  char method[16];
-  char uri[64];
-  char pro[16];
+  char method[16], path[64], version[16];
+  FILE *in, *out, *src;
 
-  FILE *src;
-  FILE *out;
-  FILE *in;
-
-  char buff[BUFF_SIZE];
+  static _Thread_local char buff[BUFF_SIZE];
   size_t read;
 
   if (!(in = fdopen (sock, "r")))
@@ -122,22 +124,22 @@ serve (void *arg)
   if (!fgets (buff, BUFF_SIZE, in))
     goto err2;
 
-  if (sscanf (buff, "%s %s %s", method, uri, pro) != 3)
+  if (sscanf (buff, "%s %s %s", method, path, version) != 3)
     goto err2;
 
   /* only accept GET & HTTP/1.1 */
-  if (!is_equal (method, "GET") || !is_equal (pro, "HTTP/1.1"))
+  if (!is_equal (method, "GET") || !is_equal (version, "HTTP/1.1"))
     goto err2;
 
   /* respond 404 if the target file fails to open */
-  if (!(src = fopen (uri + 1, "r")))
+  if (!(src = fopen (path + 1, "r")))
     {
       serve_404 (out);
       goto err2;
     }
 
   struct stat info;
-  if (stat (uri + 1, &info) != 0)
+  if (stat (path + 1, &info) != 0)
     goto err3;
 
   if (!send_header (out, 200, info.st_size))
