@@ -17,6 +17,8 @@
       error (fmt, ##__VA_ARGS__);                                             \
   while (0)
 
+#define is_equal(str1, str2) (strcmp (str1, str2) == 0)
+
 typedef struct sockaddr sockaddr_t;
 typedef struct sockaddr_in sockaddr4_t;
 typedef struct sockaddr_in6 sockaddr6_t;
