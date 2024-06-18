@@ -27,7 +27,8 @@ threadpool_free (threadpool_t *pool)
 void
 threadpool_wait (threadpool_t *pool)
 {
-  for (; __atomic_load_n (&pool->remain, __ATOMIC_ACQUIRE);)
+  __atomic_fetch_add (&pool->remain, 0, __ATOMIC_RELAXED);
+  for (; __atomic_load_n (&pool->remain, __ATOMIC_RELAXED);)
     ;
 }
 
@@ -61,13 +62,7 @@ threadpool_quit (threadpool_t *pool)
 int
 threadpool_init (threadpool_t *pool, size_t n)
 {
-  pool->status = THREADPOOL_STS_RUN;
-
-  pool->size = 0;
-  pool->threads = NULL;
-
-  pool->remain = 0;
-  pool->head = pool->tail = NULL;
+  *pool = (threadpool_t){ .status = THREADPOOL_STS_RUN };
 
   if (0 != pthread_mutex_init (&pool->mtx, NULL))
     return THREADPOOL_ERR_MTX;
@@ -76,7 +71,7 @@ threadpool_init (threadpool_t *pool, size_t n)
 
   size_t init = 0;
   pthread_t *threads;
-  n = n ? n : THREADPOOL_THREADS;
+  n = n ?: THREADPOOL_THREADS;
 
   if (!(threads = malloc (n * sizeof (pthread_t))))
     return THREADPOOL_ERR_MALLOC;
@@ -85,9 +80,8 @@ threadpool_init (threadpool_t *pool, size_t n)
     if (0 != pthread_create (&threads[init], NULL, work, pool))
       goto err;
 
-  pool->size = n;
   pool->threads = threads;
-
+  pool->size = n;
   return 0;
 
 err:
@@ -115,8 +109,8 @@ threadpool_post (threadpool_t *pool, threadpool_func_t *f, void *a)
 
   if (pool->status == THREADPOOL_STS_QUIT)
     {
-      free (task);
       pthread_mutex_unlock (&pool->mtx);
+      free (task);
       return THREADPOOL_ERR_QUITTED;
     }
 
@@ -128,10 +122,8 @@ threadpool_post (threadpool_t *pool, threadpool_func_t *f, void *a)
 
   pthread_mutex_unlock (&pool->mtx);
 
-  __atomic_fetch_add (&pool->remain, 1, __ATOMIC_RELEASE);
-
+  __atomic_fetch_add (&pool->remain, 1, __ATOMIC_RELAXED);
   pthread_cond_signal (&pool->cond);
-
   return 0;
 }
 
@@ -161,10 +153,9 @@ work (void *arg)
       pthread_mutex_unlock (&pool->mtx);
 
       task->func (task->arg);
-
-      __atomic_fetch_sub (&pool->remain, 1, __ATOMIC_RELEASE);
-
       free (task);
+
+      __atomic_fetch_sub (&pool->remain, 1, __ATOMIC_RELAXED);
     }
 
   return NULL;
