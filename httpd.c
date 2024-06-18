@@ -40,8 +40,8 @@ static threadpool_t pool;
 static uint16_t port = PORT;
 
 static void serve (void *arg);
-static void serve_404 (FILE *out);
-static bool send_header (FILE *out, int code, size_t size);
+static bool send_header (FILE *out, int code, size_t len);
+static bool send_data (FILE *out, const void *data, size_t n);
 
 int
 main (int argc, char **argv)
@@ -109,22 +109,19 @@ serve (void *arg)
   client_t *clnt = (client_t *)arg;
   int sock = clnt->sock;
 
-  char method[16], path[64], version[16];
+  char method[16], uri[64], version[16];
   FILE *in, *out, *src;
 
   static _Thread_local char buff[BUFF_SIZE];
   size_t read;
 
-  if (!(in = fdopen (sock, "r")))
-    goto err;
-
-  if (!(out = fdopen (sock, "w")))
+  if (!(in = fdopen (sock, "r")) || !(out = fdopen (sock, "w")))
     goto err;
 
   if (!fgets (buff, BUFF_SIZE, in))
     goto err2;
 
-  if (sscanf (buff, "%s %s %s", method, path, version) != 3)
+  if (sscanf (buff, "%s %s %s", method, uri, version) != 3)
     goto err2;
 
   /* only accept GET & HTTP/1.1 */
@@ -132,14 +129,15 @@ serve (void *arg)
     goto err2;
 
   /* respond 404 if the target file fails to open */
-  if (!(src = fopen (path + 1, "r")))
+  if (!(src = fopen (uri + 1, "r")))
     {
-      serve_404 (out);
+      if (send_header (out, 404, 13))
+        send_data (out, "404 NOT FOUND", 13);
       goto err2;
     }
 
   struct stat info;
-  if (stat (path + 1, &info) != 0)
+  if (fstat (fileno (src), &info) != 0)
     goto err3;
 
   if (!send_header (out, 200, info.st_size))
@@ -147,7 +145,7 @@ serve (void *arg)
 
   /* send file content */
   for (; (read = fread (buff, 1, BUFF_SIZE, src));)
-    if (!fwrite (buff, 1, read, out))
+    if (!send_data (out, buff, read))
       goto err3;
 
 err3:
@@ -162,17 +160,8 @@ err:
   free (clnt);
 }
 
-static void
-serve_404 (FILE *out)
-{
-  if (!send_header (out, 404, 13))
-    return;
-
-  fwrite ("404 NOT FOUND", 1, 13, out);
-}
-
 static bool
-send_header (FILE *out, int code, size_t size)
+send_header (FILE *out, int code, size_t len)
 {
   static const char s200[] = "HTTP/1.1 200 OK\r\n";
 
@@ -184,6 +173,7 @@ send_header (FILE *out, int code, size_t size)
 
   size_t status_len;
   const char *status_src;
+  size_t header_len = sizeof (header) - 1;
 
   switch (code)
     {
@@ -203,21 +193,27 @@ send_header (FILE *out, int code, size_t size)
     }
 
   /* send status line */
-  if (!fwrite (status_src, 1, status_len, out))
+  if (!send_data (out, status_src, status_len))
     return false;
 
   /* send parital header */
-  if (!fwrite (header, 1, sizeof (header) - 1, out))
+  if (!send_data (out, header, header_len))
     return false;
 
   char conv[24];
-  if (snprintf (conv, 24, "%lu", size) <= 0)
+  if (snprintf (conv, 24, "%lu", len) <= 0)
     return false;
 
   /* send length */
-  if (!fwrite (conv, 1, strlen (conv), out))
+  if (!send_data (out, conv, strlen (conv)))
     return false;
 
-  /* send ending */
-  return fwrite ("\r\n\r\n", 1, 4, out);
+  /* send newline */
+  return send_data (out, "\r\n\r\n", 4);
+}
+
+static inline bool
+send_data (FILE *out, const void *data, size_t size)
+{
+  return size ? fwrite (data, 1, size, out) : true;
 }
