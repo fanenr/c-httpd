@@ -1,12 +1,12 @@
-MODE = release
+MODE = debug
 
 include config.mk
 export CFLAGS LDFLAGS
 
 .PHONY: all
-all: httpd
+all: test
 
-httpd: httpd.o threadpool.o
+test: test.o mstr.o httpd.o threadpool.o
 	gcc $(LDFLAGS) -o $@ $^
 
 %.o: %.c
@@ -18,4 +18,4 @@ json: clean
 
 .PHONY: clean
 clean:
-	-rm -f *.o httpd
+	-rm -f *.o test

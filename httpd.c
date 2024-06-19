@@ -1,252 +1,499 @@
-#include "threadpool.h"
-#include "util.h"
+#include "httpd.h"
+#include "config.h"
 
+#include <ctype.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <arpa/inet.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* config */
+#define MAX_REQLINE_LEN 1024
+#define MAX_RESHEAD_LEN 4096
 
-#define ROOT "."
-#define PORT 3354
-#define BACKLOG 48
-#define THREADS 16
-#define BUFF_SIZE 4096
-#define REUSEADDR true
-#define DEFAULT_LENGTH
+#define error(fmt, ...)                                                       \
+  do                                                                          \
+    {                                                                         \
+      fprintf (stderr, "%s:%d (%s): ", __FUNCTION__, __LINE__, __FILE__);     \
+      fprintf (stderr, fmt, ##__VA_ARGS__);                                   \
+      fprintf (stderr, "\n");                                                 \
+      __builtin_trap ();                                                      \
+    }                                                                         \
+  while (0)
 
-static const char *indexs[] = { "index.htm", "index.html" };
-static const size_t indexs_len = sizeof (indexs) / sizeof (*indexs);
+#define reto(val, label)                                                      \
+  do                                                                          \
+    {                                                                         \
+      ret = val;                                                              \
+      goto label;                                                             \
+    }                                                                         \
+  while (0)
 
-/* typedef */
-
-typedef struct client_t client_t;
-
-struct client_t
+enum
 {
-  int sock;
-  socklen_t len;
-  sockaddr4_t addr;
+  HTTPD_OK,
+
+  HTTPD_ERR_SERVER_INIT_ROOT,
+  HTTPD_ERR_SERVER_INIT_POOL,
+  HTTPD_ERR_SERVER_INIT_SOCK,
+  HTTPD_ERR_SERVER_INIT_BIND,
+  HTTPD_ERR_SERVER_INIT_LISTEN,
+  HTTPD_ERR_SERVER_INIT_REUSEADDR,
+
+  HTTPD_ERR_REQUEST_INIT_VER,
+  HTTPD_ERR_REQUEST_INIT_URI,
+  HTTPD_ERR_REQUEST_INIT_LINE,
+  HTTPD_ERR_REQUEST_INIT_METHOD,
+
+  HTTPD_ERR_CONTEXT_INIT_IN,
+  HTTPD_ERR_CONTEXT_INIT_OUT,
+  HTTPD_ERR_CONTEXT_INIT_REQ,
+
+  HTTPD_ERR_RESOURCE_IHIT_SRC,
+  HTTPD_ERR_RESOURCE_IHIT_404,
 };
 
-/* global variables */
+enum
+{
+  HTTPD_MIME_UNKNOWN,
+  HTTPD_MIME_TEXT,
+  HTTPD_MIME_HTML,
+  HTTPD_MIME_CSS,
+  HTTPD_MIME_JS,
+};
 
-static int sock;
-static sockaddr4_t addr;
-static threadpool_t pool;
-static size_t root_len = 1;
-static uint16_t port = PORT;
-static const char *root = ROOT;
+enum
+{
+  HTTPD_REQ_GET,
+  HTTPD_REQ_POST,
+};
+
+typedef struct request_t request_t;
+typedef struct context_t context_t;
+typedef struct resource_t resource_t;
+
+struct request_t
+{
+  int ver;    /* version */
+  int method; /* method */
+  mstr_t uri; /* uri */
+  /* headers */
+  /* body */
+};
+
+struct context_t
+{
+  FILE *in;       /* input */
+  FILE *out;      /* output */
+  request_t req;  /* request */
+  client_t *clnt; /* client */
+};
+
+struct resource_t
+{
+  int mime;       /* mime */
+  FILE *src;      /* src */
+  size_t size;    /* size */
+  context_t *ctx; /* context */
+};
+
+static void client_free (client_t *clnt);
+
+static void request_free (request_t *req);
+static int request_init (request_t *req, context_t *ctx);
+
+static void context_free (context_t *ctx);
+static int context_init (context_t *ctx, client_t *clnt);
+
+static void resource_free (resource_t *res);
+static int resource_init (resource_t *res, context_t *ctx);
 
 static void serve (void *arg);
-static bool send_header (FILE *out, int code, size_t len);
-static bool send_data (FILE *out, const void *data, size_t n);
+static bool send_data (context_t *ctx, const void *data, size_t n);
+static int header_init (char *dst, int max, resource_t *res, int code);
+
+void
+server_free (server_t *serv)
+{
+  threadpool_free (&serv->pool);
+  mstr_free (&serv->root);
+  close (serv->sock);
+}
+
+void
+server_poll (server_t *serv)
+{
+  client_t *clnt;
+  socklen_t len = sizeof (clnt->addr);
+
+  if (!(clnt = malloc (sizeof (client_t))))
+    error ("malloc failed");
+
+  /* init serv */
+  clnt->serv = serv;
+
+  /* init sock and addr */
+  if ((clnt->sock = accept (serv->sock, (void *)&clnt->addr, &len)) == -1)
+    goto clean_clnt;
+
+  /* post task */
+  if (threadpool_post (&serv->pool, serve, clnt) != 0)
+    goto clean_sock;
+
+  printf ("new request from %s:%d\n", inet_ntoa (clnt->addr.sin_addr),
+          ntohs (clnt->addr.sin_port));
+
+  return;
+
+clean_sock:
+  close (clnt->sock);
+
+clean_clnt:
+  free (clnt);
+}
 
 int
-main (int argc, char **argv)
+server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
+             int backlog, int flags)
 {
-  if (threadpool_init (&pool, THREADS) != 0)
-    error ("threadpool init failed");
+  int ret;
 
-  if (argc >= 2)
+  /* init port */
+  serv->port = port;
+
+  /* init addr */
+  serv->addr = (sockaddr4_t){
+    .sin_family = AF_INET,
+    .sin_port = htons (port),
+    .sin_addr.s_addr = htonl (INADDR_ANY),
+  };
+
+  /* init sock */
+  if ((serv->sock = socket (AF_INET, SOCK_STREAM, 0)) == -1)
+    reto (HTTPD_ERR_SERVER_INIT_SOCK, ret);
+
+  /* bind addr */
+  if (bind (serv->sock, (void *)&serv->addr, sizeof (serv->addr)) == -1)
+    reto (HTTPD_ERR_SERVER_INIT_BIND, clean_sock);
+
+  /* open reuseaddr option */
+  if (flags & SERVER_REUSEADDR)
     {
-      char *raw = argv[1], *end;
-      port = strtol (raw, &end, 10);
-      error_if (end == raw, "port pase failed");
+      int opt = true;
+      socklen_t len = sizeof (opt);
+      if (setsockopt (serv->sock, SOL_SOCKET, SO_REUSEADDR, &opt, len) != 0)
+        reto (HTTPD_ERR_SERVER_INIT_REUSEADDR, clean_sock);
     }
 
-  if (argc >= 3)
-    {
-      root = argv[2];
-      root_len = strlen (root);
-    }
+  /* init root */
+  serv->root = MSTR_INIT;
+  if (!mstr_assign_cstr (&serv->root, root))
+    reto (HTTPD_ERR_SERVER_INIT_ROOT, clean_sock);
 
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons (port);
-  addr.sin_addr.s_addr = htonl (INADDR_ANY);
-
-  /* socket */
-  if ((sock = socket (AF_INET, SOCK_STREAM, 0)) == -1)
-    error ("create socket failed");
-
-  /* setsockopt */
-  int opt = REUSEADDR;
-  socklen_t opt_len = sizeof (opt);
-  if (setsockopt (sock, SOL_SOCKET, SO_REUSEADDR, &opt, opt_len) != 0)
-    error ("setsockopt failed");
-
-  /* bind */
-  if (bind (sock, (void *)&addr, sizeof (addr)) == -1)
-    error ("bind addr failed");
+  /* init pool */
+  if (threadpool_init (&serv->pool, threads) != 0)
+    reto (HTTPD_ERR_SERVER_INIT_POOL, clean_root);
 
   /* listen */
-  if (listen (sock, BACKLOG) == -1)
-    error ("listen failed");
+  if (listen (serv->sock, backlog) != 0)
+    reto (HTTPD_ERR_SERVER_INIT_LISTEN, clean_pool);
 
-  for (client_t *clnt;;)
-    {
-      if (!(clnt = malloc (sizeof (client_t))))
-        error ("malloc failed");
+  return 0;
 
-      /* init clnt.len */
-      clnt->len = sizeof (clnt->addr);
+clean_pool:
+  threadpool_free (&serv->pool);
 
-      /* accept */
-      clnt->sock = accept (sock, (void *)&clnt->addr, &clnt->len);
+clean_root:
+  mstr_free (&serv->root);
 
-      if (clnt->sock == -1)
-        continue;
+clean_sock:
+  close (serv->sock);
 
-      printf ("new request from %s:%d\n", inet_ntoa (clnt->addr.sin_addr),
-              ntohs (clnt->addr.sin_port));
+ret:
+  return ret;
+}
 
-      if (threadpool_post (&pool, serve, clnt) != 0)
-        error ("post task failed");
-    }
+static void
+client_free (client_t *clnt)
+{
+  close (clnt->sock);
+  free (clnt);
+}
 
-  threadpool_free (&pool);
-  close (sock);
+static void
+request_free (request_t *req)
+{
+  mstr_free (&req->uri);
+}
+
+static int
+request_init (request_t *req, context_t *ctx)
+{
+  static _Thread_local char line[MAX_REQLINE_LEN];
+  const char *pos, *end;
+  size_t len;
+  int ret;
+
+  if (!fgets (line, MAX_REQLINE_LEN, ctx->in))
+    reto (HTTPD_ERR_REQUEST_INIT_LINE, ret);
+
+  pos = line;
+  if (!(end = strchr (pos, ' ')))
+    reto (HTTPD_ERR_REQUEST_INIT_METHOD, ret);
+  len = end - pos;
+
+  /* init method */
+  if (strncmp (pos, "GET", len) == 0)
+    req->method = HTTPD_REQ_GET;
+  else if (strncmp (pos, "POST", len) == 0)
+    req->method = HTTPD_REQ_POST;
+  else
+    reto (HTTPD_ERR_REQUEST_INIT_METHOD, ret);
+
+  pos = end + 1;
+  if (!(end = strchr (pos, ' ')))
+    reto (HTTPD_ERR_REQUEST_INIT_URI, ret);
+  len = end - pos;
+
+  /* init uri */
+  req->uri = MSTR_INIT;
+  if (!mstr_assign_byte (&req->uri, (void *)pos, len))
+    reto (HTTPD_ERR_REQUEST_INIT_URI, ret);
+
+  pos = end + 1;
+  if (!(end = strchr (pos, '\r')))
+    reto (HTTPD_ERR_REQUEST_INIT_VER, clean_uri);
+  len = end - pos;
+
+  /* init ver */
+  if (strncmp (pos, "HTTP/1.1", len) == 0)
+    req->ver = 0;
+  else if (strncmp (pos, "HTTP/1.0", len) == 0)
+    req->ver = 1;
+  else
+    reto (HTTPD_ERR_REQUEST_INIT_VER, clean_uri);
+
+  return 0;
+
+clean_uri:
+  mstr_free (&req->uri);
+
+ret:
+  return ret;
+}
+
+static void
+context_free (context_t *ctx)
+{
+  fclose (ctx->in);
+  fclose (ctx->out);
+  request_free (&ctx->req);
+}
+
+static int
+context_init (context_t *ctx, client_t *clnt)
+{
+  int ret;
+
+  /* init in */
+  if (!(ctx->in = fdopen (clnt->sock, "r")))
+    reto (HTTPD_ERR_CONTEXT_INIT_IN, ret);
+
+  /* init out */
+  if (!(ctx->out = fdopen (dup (clnt->sock), "w")))
+    reto (HTTPD_ERR_CONTEXT_INIT_OUT, clean_in);
+
+  /* init req */
+  if (request_init (&ctx->req, ctx) != 0)
+    reto (HTTPD_ERR_CONTEXT_INIT_REQ, clean_out);
+
+  /* init clnt */
+  ctx->clnt = clnt;
+
+  return 0;
+
+clean_out:
+  fclose (ctx->out);
+
+clean_in:
+  fclose (ctx->in);
+
+ret:
+  return ret;
+}
+
+static void
+resource_free (resource_t *res)
+{
+  fclose (res->src);
+}
+
+static int
+resource_init (resource_t *res, context_t *ctx)
+{
+  client_t *clnt = ctx->clnt;
+  mstr_t *root = &clnt->serv->root, *uri = &ctx->req.uri;
+  size_t root_len = mstr_len (root), uri_len = mstr_len (uri);
+
+  size_t path_len = root_len + uri_len;
+  char *path = alloca (path_len + 16);
+  struct stat info;
+
+  path[path_len] = '\0';
+  memcpy (path, mstr_data (root), root_len);
+  memcpy (path + root_len, mstr_data (uri), uri_len);
+
+  if (stat (path, &info) != 0)
+    return HTTPD_ERR_RESOURCE_IHIT_404;
+
+  if (S_ISDIR (info.st_mode))
+    for (size_t i = 0; i < indexs_size; i++)
+      {
+        strcpy (path + path_len, indexs[i]);
+        if (stat (path, &info) == 0 && S_ISREG (info.st_mode))
+          break;
+        if (i == indexs_size - 1)
+          return HTTPD_ERR_RESOURCE_IHIT_404;
+      }
+
+  /* init src */
+  if (!(res->src = fopen (path, "r")))
+    return HTTPD_ERR_RESOURCE_IHIT_SRC;
+
+  /* init size */
+  res->size = info.st_size;
+
+  /* init mime */
+  char *pos = strrchr (path, '.');
+
+  if (pos == NULL)
+    res->mime = HTTPD_MIME_TEXT;
+  else if (strcmp (pos, ".html") == 0)
+    res->mime = HTTPD_MIME_HTML;
+  else if (strcmp (pos, ".htm") == 0)
+    res->mime = HTTPD_MIME_HTML;
+  else if (strcmp (pos, ".css") == 0)
+    res->mime = HTTPD_MIME_CSS;
+  else if (strcmp (pos, ".js") == 0)
+    res->mime = HTTPD_MIME_JS;
+  else
+    res->mime = HTTPD_MIME_UNKNOWN;
+
+  /* init ctx */
+  res->ctx = ctx;
+
+  return 0;
 }
 
 static void
 serve (void *arg)
 {
-  client_t *clnt = (client_t *)arg;
-  int sock = clnt->sock;
+  context_t ctx;
+  resource_t res;
 
-  char method[16], uri[128], version[16];
-  FILE *in, *out, *src;
+  if (context_init (&ctx, arg) != 0)
+    goto ret;
 
-  static _Thread_local char buff[BUFF_SIZE];
-  size_t read, uri_len;
-  struct stat info;
+  int init = resource_init (&res, &ctx);
+  if (init != 0 && init != HTTPD_ERR_RESOURCE_IHIT_404)
+    goto clean_ctx;
 
-  if (!(in = fdopen (sock, "r")) || !(out = fdopen (sock, "w")))
-    goto err;
+  const size_t buff_size = MAX_RESHEAD_LEN;
+  static _Thread_local char buff[MAX_RESHEAD_LEN];
 
-  if (!fgets (buff, BUFF_SIZE, in))
-    goto err2;
+  int code = (init == 0) ? 200 : 404;
+  int size = header_init (buff, buff_size, &res, code);
 
-  /* copy root dir */
-  if (memcpy (uri, root, root_len) != uri)
-    goto err2;
+  if (size <= 0)
+    goto clean_res;
 
-  if (sscanf (buff, "%s %s %s", method, uri + root_len, version) != 3)
-    goto err2;
+  /* send header */
+  if (!send_data (&ctx, buff, size))
+    goto clean_res;
 
-  /* only handle GET & HTTP/1.1 */
-  if (!is_equal (method, "GET") || !is_equal (version, "HTTP/1.1"))
-    goto err2;
-
-  if (stat (uri, &info) != 0)
+  /* send 404 */
+  if (code == 404)
     {
-    err404:
-      if (send_header (out, 404, 13))
-        send_data (out, "404 NOT FOUND", 13);
-      goto err2;
+      send_data (&ctx, "404 NOT FOUND", 13);
+      goto clean_res;
     }
 
-  if (S_ISDIR (info.st_mode))
-    {
-      size_t uri_len = strlen (uri);
-      for (size_t i = 0; i < indexs_len; i++)
-        {
-          strcpy (uri + uri_len, indexs[i]);
-          if (stat (uri, &info) == 0)
-            {
-              if (S_ISREG (info.st_mode))
-                break;
-              goto err404;
-            }
-          else if (i == indexs_len - 1)
-            goto err404;
-        }
-    }
+  /* send data */
+  for (; (size = fread (buff, 1, buff_size, res.src));)
+    if (!send_data (&ctx, buff, size))
+      goto clean_res;
 
-  if (!(src = fopen (uri, "r")))
-    goto err2;
+clean_res:
+  resource_free (&res);
 
-  if (!send_header (out, 200, info.st_size))
-    goto err3;
+clean_ctx:
+  context_free (&ctx);
 
-  /* send file content */
-  for (; (read = fread (buff, 1, BUFF_SIZE, src));)
-    if (!send_data (out, buff, read))
-      goto err3;
-
-err3:
-  fclose (src);
-
-err2:
-  fclose (out);
-  fclose (in);
-
-err:
-  close (sock);
-  free (clnt);
+ret:
+  client_free (arg);
 }
 
-static bool
-send_header (FILE *out, int code, size_t len)
+static int
+header_init (char *dst, int max, resource_t *res, int code)
 {
-  static const char s200[] = "HTTP/1.1 200 OK\r\n";
+  const char *msg, *mime;
+  size_t size = res->size;
 
-  static const char s404[] = "HTTP/1.1 404 NOT FOUND\r\n";
-
-  static const char header[] = "Server: tinyhttpd\r\n"
-                               "Content-Type: text/html\r\n"
-                               "Content-Length: " DEFAULT_LENGTH;
-
-  size_t status_len;
-  const char *status_src;
-  size_t header_len = sizeof (header) - 1;
+  context_t *ctx = res->ctx;
+  request_t *req = &ctx->req;
+  int ver = req->ver;
 
   switch (code)
     {
     case 200:
-      status_len = sizeof (s200) - 1;
-      status_src = s200;
+      msg = "OK";
       break;
 
     case 404:
-      status_len = sizeof (s404) - 1;
-      status_src = s404;
+      msg = "NOT FOUND";
       break;
 
     default:
       /* only support 200 and 404 */
-      return false;
+      return 0;
     }
 
-  /* send status line */
-  if (!send_data (out, status_src, status_len))
-    return false;
+  switch (res->mime)
+    {
+    case HTTPD_MIME_UNKNOWN:
+    case HTTPD_MIME_TEXT:
+    default:
+      mime = "text/plain";
+      break;
 
-  /* send parital header */
-  if (!send_data (out, header, header_len))
-    return false;
+    case HTTPD_MIME_HTML:
+      mime = "text/html";
+      break;
 
-  char conv[24];
-  if (snprintf (conv, 24, "%lu", len) <= 0)
-    return false;
+    case HTTPD_MIME_CSS:
+      mime = "text/css";
+      break;
 
-  /* send length */
-  if (!send_data (out, conv, strlen (conv)))
-    return false;
+    case HTTPD_MIME_JS:
+      mime = "application/javascript";
+      break;
+    }
 
-  /* send newline */
-  return send_data (out, "\r\n\r\n", 4);
+  static const char *format = "HTTP/1.%d %d %s"
+                              "\r\n"
+                              "Server: httpd\r\n"
+                              "Content-Type: %s\r\n"
+                              "Content-Length: %lu\r\n"
+                              "\r\n";
+
+  return snprintf (dst, max, format, ver, code, msg, mime, size);
 }
 
 static inline bool
-send_data (FILE *out, const void *data, size_t size)
+send_data (context_t *ctx, const void *data, size_t size)
 {
-  return size ? fwrite (data, 1, size, out) : true;
+  return size ? fwrite (data, 1, size, ctx->out) : true;
 }
