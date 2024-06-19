@@ -14,12 +14,16 @@
 
 /* config */
 
+#define ROOT "."
 #define PORT 3354
 #define BACKLOG 48
 #define THREADS 16
 #define BUFF_SIZE 4096
 #define REUSEADDR true
 #define DEFAULT_LENGTH
+
+static const char *indexs[] = { "index.htm", "index.html" };
+static const size_t indexs_len = sizeof (indexs) / sizeof (*indexs);
 
 /* typedef */
 
@@ -37,7 +41,9 @@ struct client_t
 static int sock;
 static sockaddr4_t addr;
 static threadpool_t pool;
+static size_t root_len = 1;
 static uint16_t port = PORT;
+static const char *root = ROOT;
 
 static void serve (void *arg);
 static bool send_header (FILE *out, int code, size_t len);
@@ -54,6 +60,12 @@ main (int argc, char **argv)
       char *raw = argv[1], *end;
       port = strtol (raw, &end, 10);
       error_if (end == raw, "port pase failed");
+    }
+
+  if (argc >= 3)
+    {
+      root = argv[2];
+      root_len = strlen (root);
     }
 
   addr.sin_family = AF_INET;
@@ -109,11 +121,12 @@ serve (void *arg)
   client_t *clnt = (client_t *)arg;
   int sock = clnt->sock;
 
-  char method[16], uri[64], version[16];
+  char method[16], uri[128], version[16];
   FILE *in, *out, *src;
 
   static _Thread_local char buff[BUFF_SIZE];
-  size_t read;
+  size_t read, uri_len;
+  struct stat info;
 
   if (!(in = fdopen (sock, "r")) || !(out = fdopen (sock, "w")))
     goto err;
@@ -121,24 +134,44 @@ serve (void *arg)
   if (!fgets (buff, BUFF_SIZE, in))
     goto err2;
 
-  if (sscanf (buff, "%s %s %s", method, uri, version) != 3)
+  /* copy root dir */
+  if (memcpy (uri, root, root_len) != uri)
     goto err2;
 
-  /* only accept GET & HTTP/1.1 */
+  if (sscanf (buff, "%s %s %s", method, uri + root_len, version) != 3)
+    goto err2;
+
+  /* only handle GET & HTTP/1.1 */
   if (!is_equal (method, "GET") || !is_equal (version, "HTTP/1.1"))
     goto err2;
 
-  /* respond 404 if the target file fails to open */
-  if (!(src = fopen (uri + 1, "r")))
+  if (stat (uri, &info) != 0)
     {
+    err404:
       if (send_header (out, 404, 13))
         send_data (out, "404 NOT FOUND", 13);
       goto err2;
     }
 
-  struct stat info;
-  if (fstat (fileno (src), &info) != 0)
-    goto err3;
+  if (S_ISDIR (info.st_mode))
+    {
+      size_t uri_len = strlen (uri);
+      for (size_t i = 0; i < indexs_len; i++)
+        {
+          strcpy (uri + uri_len, indexs[i]);
+          if (stat (uri, &info) == 0)
+            {
+              if (S_ISREG (info.st_mode))
+                break;
+              goto err404;
+            }
+          else if (i == indexs_len - 1)
+            goto err404;
+        }
+    }
+
+  if (!(src = fopen (uri, "r")))
+    goto err2;
 
   if (!send_header (out, 200, info.st_size))
     goto err3;
@@ -168,8 +201,8 @@ send_header (FILE *out, int code, size_t len)
   static const char s404[] = "HTTP/1.1 404 NOT FOUND\r\n";
 
   static const char header[] = "Server: tinyhttpd\r\n"
-                               "Content-type: text/html\r\n"
-                               "Content-length: " DEFAULT_LENGTH;
+                               "Content-Type: text/html\r\n"
+                               "Content-Length: " DEFAULT_LENGTH;
 
   size_t status_len;
   const char *status_src;
@@ -188,7 +221,7 @@ send_header (FILE *out, int code, size_t len)
       break;
 
     default:
-      /* only support 404 and 200 */
+      /* only support 200 and 404 */
       return false;
     }
 
