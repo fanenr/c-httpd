@@ -2,11 +2,12 @@
 *.o
 
 # exe file
-httpd
+test
 
 # other
 compile_commands.json
 
 # directory
 !/**/
+/blog/
 /.cache/
