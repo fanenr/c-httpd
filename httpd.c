@@ -112,8 +112,9 @@ static void resource_free (resource_t *res);
 static int resource_init (resource_t *res, context_t *ctx);
 
 static void serve (void *arg);
+static void serve_not_found (context_t *ctx);
 static bool send_data (context_t *ctx, const void *data, size_t n);
-static int header_init (char *dst, int max, resource_t *res, int code);
+static int header_init (char *dst, int max, int code, resource_t *res);
 
 void
 server_free (server_t *serv)
@@ -334,6 +335,10 @@ resource_free (resource_t *res)
 static int
 resource_init (resource_t *res, context_t *ctx)
 {
+  /* init ctx */
+  res->ctx = ctx;
+
+  /* init src */
   client_t *clnt = ctx->clnt;
   mstr_t *root = &clnt->serv->root, *uri = &ctx->req.uri;
   size_t root_len = mstr_len (root), uri_len = mstr_len (uri);
@@ -359,7 +364,6 @@ resource_init (resource_t *res, context_t *ctx)
           return HTTPD_ERR_RESOURCE_IHIT_404;
       }
 
-  /* init src */
   if (!(res->src = fopen (path, "r")))
     return HTTPD_ERR_RESOURCE_IHIT_SRC;
 
@@ -382,10 +386,18 @@ resource_init (resource_t *res, context_t *ctx)
   else
     res->mime = HTTPD_MIME_UNKNOWN;
 
-  /* init ctx */
-  res->ctx = ctx;
-
   return 0;
+}
+
+static void
+serve_not_found (context_t *ctx)
+{
+  static const char *res = "HTTP/1.1 404 NOT FOUND\r\n"
+                           "Server: httpd\r\n"
+                           "Content-Type: text/html\r\n"
+                           "Content-Length: 13\r\n\r\n"
+                           "404 NOT FOUND";
+  send_data (ctx, res, 99);
 }
 
 static void
@@ -398,14 +410,19 @@ serve (void *arg)
     goto ret;
 
   int init = resource_init (&res, &ctx);
-  if (init != 0 && init != HTTPD_ERR_RESOURCE_IHIT_404)
-    goto clean_ctx;
+
+  if (init != 0)
+    {
+      if (init == HTTPD_ERR_RESOURCE_IHIT_404)
+        serve_not_found (&ctx);
+      goto clean_ctx;
+    }
 
   const size_t buff_size = MAX_RESHEAD_LEN;
   static _Thread_local char buff[MAX_RESHEAD_LEN];
 
   int code = (init == 0) ? 200 : 404;
-  int size = header_init (buff, buff_size, &res, code);
+  int size = header_init (buff, buff_size, code, &res);
 
   if (size <= 0)
     goto clean_res;
@@ -413,13 +430,6 @@ serve (void *arg)
   /* send header */
   if (!send_data (&ctx, buff, size))
     goto clean_res;
-
-  /* send 404 */
-  if (code == 404)
-    {
-      send_data (&ctx, "404 NOT FOUND", 13);
-      goto clean_res;
-    }
 
   /* send data */
   for (; (size = fread (buff, 1, buff_size, res.src));)
@@ -437,14 +447,14 @@ ret:
 }
 
 static int
-header_init (char *dst, int max, resource_t *res, int code)
+header_init (char *dst, int max, int code, resource_t *res)
 {
   const char *msg, *mime;
   size_t size = res->size;
 
   context_t *ctx = res->ctx;
-  request_t *req = &ctx->req;
-  int ver = req->ver;
+  request_t req = ctx->req;
+  int ver = req.ver;
 
   switch (code)
     {
