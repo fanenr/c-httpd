@@ -32,45 +32,6 @@
     }                                                                         \
   while (0)
 
-enum
-{
-  HTTPD_OK,
-
-  HTTPD_ERR_SERVER_INIT_ROOT,
-  HTTPD_ERR_SERVER_INIT_POOL,
-  HTTPD_ERR_SERVER_INIT_SOCK,
-  HTTPD_ERR_SERVER_INIT_BIND,
-  HTTPD_ERR_SERVER_INIT_LISTEN,
-  HTTPD_ERR_SERVER_INIT_REUSEADDR,
-
-  HTTPD_ERR_REQUEST_INIT_VER,
-  HTTPD_ERR_REQUEST_INIT_URI,
-  HTTPD_ERR_REQUEST_INIT_LINE,
-  HTTPD_ERR_REQUEST_INIT_METHOD,
-
-  HTTPD_ERR_CONTEXT_INIT_IN,
-  HTTPD_ERR_CONTEXT_INIT_OUT,
-  HTTPD_ERR_CONTEXT_INIT_REQ,
-
-  HTTPD_ERR_RESOURCE_IHIT_SRC,
-  HTTPD_ERR_RESOURCE_IHIT_404,
-};
-
-enum
-{
-  HTTPD_MIME_UNKNOWN,
-  HTTPD_MIME_TEXT,
-  HTTPD_MIME_HTML,
-  HTTPD_MIME_CSS,
-  HTTPD_MIME_JS,
-};
-
-enum
-{
-  HTTPD_REQ_GET,
-  HTTPD_REQ_POST,
-};
-
 typedef struct request_t request_t;
 typedef struct context_t context_t;
 typedef struct resource_t resource_t;
@@ -113,6 +74,7 @@ static int resource_init (resource_t *res, context_t *ctx);
 
 static void serve (void *arg);
 static void serve_not_found (context_t *ctx);
+
 static bool send_data (context_t *ctx, const void *data, size_t n);
 static int header_init (char *dst, int max, int code, resource_t *res);
 
