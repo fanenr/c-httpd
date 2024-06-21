@@ -2,16 +2,20 @@
 #include <stdlib.h>
 
 #define PORT 3354
+#define THREADS 16
+#define BACKLOG 48
+#define ROOT "./blog"
+#define FLAGS SERVER_REUSEADDR
 
 int
 main (void)
 {
   server_t serv;
 
-  if (server_init (&serv, PORT, "./static", 16, 48, SERVER_REUSEADDR) != 0)
+  if (server_init (&serv, PORT, ROOT, THREADS, BACKLOG, FLAGS) != 0)
     abort ();
 
-  for (size_t i = 0; i < 4; i++)
+  for (;;)
     server_poll (&serv);
 
   server_free (&serv);
