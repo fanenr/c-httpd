@@ -5,7 +5,7 @@
 #define THREADS 16
 #define BACKLOG 48
 #define ROOT "./blog"
-#define FLAGS SERVER_REUSEADDR
+#define FLAGS HTTPD_SERVER_REUSEADDR
 
 int
 main (void)
@@ -15,7 +15,7 @@ main (void)
   if (server_init (&serv, PORT, ROOT, THREADS, BACKLOG, FLAGS) != 0)
     abort ();
 
-  for (;;)
+  for (int i = 0; i < 16; i++)
     server_poll (&serv);
 
   server_free (&serv);
