@@ -1,5 +1,6 @@
 #include "httpd.h"
 #include "config.h"
+#include "rbtree.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -32,17 +33,24 @@
     }                                                                         \
   while (0)
 
+typedef struct header_t header_t;
 typedef struct request_t request_t;
 typedef struct context_t context_t;
 typedef struct resource_t resource_t;
 
+struct header_t
+{
+  mstr_t field;
+  mstr_t value;
+  rbtree_node_t node;
+};
+
 struct request_t
 {
-  int ver;    /* version */
-  int method; /* method */
-  mstr_t uri; /* uri */
-  /* headers */
-  /* body */
+  int ver;       /* version */
+  int method;    /* method */
+  mstr_t uri;    /* uri */
+  rbtree_t tree; /* headers */
 };
 
 struct context_t
@@ -139,14 +147,14 @@ server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
     reto (HTTPD_ERR_SERVER_INIT_SOCK, ret);
 
   /* bind addr */
-  if (bind (serv->sock, (void *)&serv->addr, sizeof (serv->addr)) == -1)
+  if (bind (serv->sock, (void *)&serv->addr, sizeof (serv->addr)) != 0)
     reto (HTTPD_ERR_SERVER_INIT_BIND, clean_sock);
 
   /* open reuseaddr option */
-  if (flags & SERVER_REUSEADDR)
+  if (flags & HTTPD_SERVER_REUSEADDR)
     {
       int opt = true;
-      socklen_t len = sizeof (opt);
+      socklen_t len = sizeof (int);
       if (setsockopt (serv->sock, SOL_SOCKET, SO_REUSEADDR, &opt, len) != 0)
         reto (HTTPD_ERR_SERVER_INIT_REUSEADDR, clean_sock);
     }
@@ -187,9 +195,27 @@ client_free (client_t *clnt)
 }
 
 static void
+header_free (rbtree_node_t *n)
+{
+  header_t *h = container_of (n, header_t, node);
+  mstr_free (&h->field);
+  mstr_free (&h->value);
+  free (h);
+}
+
+static void
 request_free (request_t *req)
 {
   mstr_free (&req->uri);
+  rbtree_visit (&req->tree, header_free);
+}
+
+static int
+header_comp (const rbtree_node_t *a, const rbtree_node_t *b)
+{
+  const header_t *ha = container_of (a, header_t, node);
+  const header_t *hb = container_of (b, header_t, node);
+  return mstr_cmp_mstr (&ha->field, &hb->field);
 }
 
 static int
@@ -246,7 +272,61 @@ request_init (request_t *req, context_t *ctx)
   else
     reto (HTTPD_ERR_REQUEST_INIT_VER, clean_uri);
 
-  return 0;
+  /* init headers */
+  for (;;)
+    {
+      if (!fgets (line, MAX_REQLINE_LEN, ctx->in))
+        reto (HTTPD_ERR_REQUEST_INIT_LINE, clean_uri);
+
+      size_t len = strlen (line);
+      char *pos = line, *sep, *end;
+
+      if (len == 2 && pos[0] == '\r' && pos[1] == '\n')
+        return 0;
+
+      if (!(sep = strchr (pos, ':')))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_uri);
+
+      if (!(end = strchr (sep, '\r')))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_uri);
+
+      header_t *header;
+      if (!(header = malloc (sizeof (header_t))))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_uri);
+      header->field = header->value = MSTR_INIT;
+
+      size_t field_len = sep - pos;
+      if (!mstr_assign_byte (&header->field, (void *)pos, field_len))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header);
+
+      char *val_st = sep + 1, *val_ed = end - 1;
+      for (; *val_st == ' ' || *val_st == '\t'; val_st++)
+        ;
+      for (; *val_ed == ' ' || *val_ed == '\t'; val_ed--)
+        ;
+
+      ptrdiff_t value_len;
+      if ((value_len = val_ed - val_st) < 0)
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header_field);
+
+      if (!mstr_assign_byte (&header->value, (void *)val_st, value_len))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header_field);
+
+      if (!rbtree_insert (&req->tree, &header->node, header_comp))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header_value);
+
+      continue;
+
+    clean_header_value:
+      mstr_free (&header->value);
+
+    clean_header_field:
+      mstr_free (&header->field);
+
+    clean_header:
+      free (header);
+      goto clean_uri;
+    }
 
 clean_uri:
   mstr_free (&req->uri);
