@@ -195,7 +195,7 @@ request_free (request_t *req)
 static int
 request_init (request_t *req, context_t *ctx)
 {
-  static _Thread_local char line[MAX_REQLINE_LEN];
+  static __thread char line[MAX_REQLINE_LEN];
   const char *pos, *end;
   size_t len;
   int ret;
@@ -209,12 +209,19 @@ request_init (request_t *req, context_t *ctx)
   len = end - pos;
 
   /* init method */
-  if (strncmp (pos, "GET", len) == 0)
-    req->method = HTTPD_REQ_GET;
-  else if (strncmp (pos, "POST", len) == 0)
-    req->method = HTTPD_REQ_POST;
-  else
-    reto (HTTPD_ERR_REQUEST_INIT_METHOD, ret);
+  static const char *methods[] = {
+    "GET",    "PUT",     "HEAD",    "POST",      "TRACE",
+    "DELETE", "OPTIONS", "CONNECT", "EXTENSION",
+  };
+
+  const int msize = sizeof (methods) / sizeof (*methods);
+
+  for (int i = 0; i < msize; i++)
+    if (memcmp (pos, methods[i], len) == 0 || i == msize - 1)
+      {
+        req->method = i;
+        break;
+      }
 
   pos = end + 1;
   if (!(end = strchr (pos, ' ')))
@@ -346,7 +353,7 @@ resource_init (resource_t *res, context_t *ctx)
   else if (strcmp (pos, ".js") == 0)
     res->mime = HTTPD_MIME_JS;
   else
-    res->mime = HTTPD_MIME_UNKNOWN;
+    res->mime = HTTPD_MIME_PLAIN;
 
   return 0;
 }
@@ -381,7 +388,7 @@ serve (void *arg)
     }
 
   const size_t buff_size = MAX_RESHEAD_LEN;
-  static _Thread_local char buff[MAX_RESHEAD_LEN];
+  static __thread char buff[MAX_RESHEAD_LEN];
 
   int code = (init == 0) ? 200 : 404;
   int size = header_init (buff, buff_size, code, &res);
@@ -435,22 +442,25 @@ header_init (char *dst, int max, int code, resource_t *res)
 
   switch (res->mime)
     {
-    case HTTPD_MIME_UNKNOWN:
-    case HTTPD_MIME_TEXT:
-    default:
-      mime = "text/plain";
-      break;
-
-    case HTTPD_MIME_HTML:
-      mime = "text/html";
+    case HTTPD_MIME_JS:
+      mime = "application/javascript";
       break;
 
     case HTTPD_MIME_CSS:
       mime = "text/css";
       break;
 
-    case HTTPD_MIME_JS:
-      mime = "application/javascript";
+    case HTTPD_MIME_HTML:
+      mime = "text/html";
+      break;
+
+    case HTTPD_MIME_TEXT:
+    case HTTPD_MIME_PLAIN:
+      mime = "text/plain";
+      break;
+
+    default:
+      mime = "text/plain";
       break;
     }
 
