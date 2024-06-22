@@ -34,9 +34,62 @@
   while (0)
 
 typedef struct header_t header_t;
+typedef struct client_t client_t;
 typedef struct request_t request_t;
 typedef struct context_t context_t;
 typedef struct resource_t resource_t;
+
+/* client */
+
+struct client_t
+{
+  int sock;
+  server_t *serv;
+  sockaddr4_t addr;
+};
+
+static void client_free (client_t *clnt);
+
+/* request */
+
+struct request_t
+{
+  int proto;
+  int method;
+  mstr_t uri;
+  rbtree_t headers;
+};
+
+static void request_free (request_t *req);
+static int request_init (request_t *req, context_t *ctx);
+
+/* context */
+
+struct context_t
+{
+  FILE *in;
+  FILE *out;
+  request_t req;
+  client_t *clnt;
+};
+
+static void context_free (context_t *ctx);
+static int context_init (context_t *ctx, client_t *clnt);
+
+/* resource */
+
+struct resource_t
+{
+  int mime;
+  FILE *src;
+  size_t size;
+  context_t *ctx;
+};
+
+static void resource_free (resource_t *res);
+static int resource_init (resource_t *res, context_t *ctx);
+
+/* header */
 
 struct header_t
 {
@@ -45,46 +98,16 @@ struct header_t
   rbtree_node_t node;
 };
 
-struct request_t
-{
-  int ver;       /* version */
-  int method;    /* method */
-  mstr_t uri;    /* uri */
-  rbtree_t tree; /* headers */
-};
+static void header_free (rbtree_node_t *n);
+static int header_comp (const rbtree_node_t *a, const rbtree_node_t *b);
 
-struct context_t
-{
-  FILE *in;       /* input */
-  FILE *out;      /* output */
-  request_t req;  /* request */
-  client_t *clnt; /* client */
-};
-
-struct resource_t
-{
-  int mime;       /* mime */
-  FILE *src;      /* src */
-  size_t size;    /* size */
-  context_t *ctx; /* context */
-};
-
-static void client_free (client_t *clnt);
-
-static void request_free (request_t *req);
-static int request_init (request_t *req, context_t *ctx);
-
-static void context_free (context_t *ctx);
-static int context_init (context_t *ctx, client_t *clnt);
-
-static void resource_free (resource_t *res);
-static int resource_init (resource_t *res, context_t *ctx);
+/* serve */
 
 static void serve (void *arg);
 static void serve_not_found (context_t *ctx);
 
 static bool send_data (context_t *ctx, const void *data, size_t n);
-static int header_init (char *dst, int max, int code, resource_t *res);
+static int reshdr_init (char *dst, int max, int code, resource_t *res);
 
 void
 server_free (server_t *serv)
@@ -151,7 +174,7 @@ server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
     reto (HTTPD_ERR_SERVER_INIT_BIND, clean_sock);
 
   /* open reuseaddr option */
-  if (flags & HTTPD_SERVER_REUSEADDR)
+  if (flags & SERVER_REUSEADDR)
     {
       int opt = true;
       socklen_t len = sizeof (int);
@@ -195,27 +218,10 @@ client_free (client_t *clnt)
 }
 
 static void
-header_free (rbtree_node_t *n)
-{
-  header_t *h = container_of (n, header_t, node);
-  mstr_free (&h->field);
-  mstr_free (&h->value);
-  free (h);
-}
-
-static void
 request_free (request_t *req)
 {
   mstr_free (&req->uri);
-  rbtree_visit (&req->tree, header_free);
-}
-
-static int
-header_comp (const rbtree_node_t *a, const rbtree_node_t *b)
-{
-  const header_t *ha = container_of (a, header_t, node);
-  const header_t *hb = container_of (b, header_t, node);
-  return mstr_cmp_mstr (&ha->field, &hb->field);
+  rbtree_visit (&req->headers, header_free);
 }
 
 static int
@@ -256,7 +262,7 @@ request_init (request_t *req, context_t *ctx)
 
   /* init uri */
   req->uri = MSTR_INIT;
-  if (!mstr_assign_byte (&req->uri, (void *)pos, len))
+  if (!mstr_assign_byte (&req->uri, pos, len))
     reto (HTTPD_ERR_REQUEST_INIT_URI, ret);
 
   pos = end + 1;
@@ -266,13 +272,15 @@ request_init (request_t *req, context_t *ctx)
 
   /* init ver */
   if (strncmp (pos, "HTTP/1.1", len) == 0)
-    req->ver = 0;
+    req->proto = 0;
   else if (strncmp (pos, "HTTP/1.0", len) == 0)
-    req->ver = 1;
+    req->proto = 1;
   else
     reto (HTTPD_ERR_REQUEST_INIT_VER, clean_uri);
 
   /* init headers */
+  req->headers = RBTREE_INIT;
+
   for (;;)
     {
       if (!fgets (line, MAX_REQLINE_LEN, ctx->in))
@@ -281,22 +289,21 @@ request_init (request_t *req, context_t *ctx)
       size_t len = strlen (line);
       char *pos = line, *sep, *end;
 
+      /* reach end */
       if (len == 2 && pos[0] == '\r' && pos[1] == '\n')
         return 0;
 
-      if (!(sep = strchr (pos, ':')))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_uri);
-
-      if (!(end = strchr (sep, '\r')))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_uri);
+      if (!(sep = strchr (pos, ':')) || !(end = strchr (sep, '\r')))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
 
       header_t *header;
       if (!(header = malloc (sizeof (header_t))))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_uri);
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
+      /* init field and value */
       header->field = header->value = MSTR_INIT;
 
-      size_t field_len = sep - pos;
-      if (!mstr_assign_byte (&header->field, (void *)pos, field_len))
+      ptrdiff_t fld_len = sep - pos;
+      if (fld_len <= 0 || !mstr_assign_byte (&header->field, pos, fld_len))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header);
 
       char *val_st = sep + 1, *val_ed = end - 1;
@@ -305,28 +312,28 @@ request_init (request_t *req, context_t *ctx)
       for (; *val_ed == ' ' || *val_ed == '\t'; val_ed--)
         ;
 
-      ptrdiff_t value_len;
-      if ((value_len = val_ed - val_st) < 0)
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header_field);
+      ptrdiff_t val_len = val_ed - val_st;
+      if (val_len < 0 || !mstr_assign_byte (&header->value, val_st, val_len))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_field);
 
-      if (!mstr_assign_byte (&header->value, (void *)val_st, value_len))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header_field);
-
-      if (!rbtree_insert (&req->tree, &header->node, header_comp))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header_value);
+      if (!rbtree_insert (&req->headers, &header->node, header_comp))
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_value);
 
       continue;
 
-    clean_header_value:
+    clean_value:
       mstr_free (&header->value);
 
-    clean_header_field:
+    clean_field:
       mstr_free (&header->field);
 
     clean_header:
       free (header);
-      goto clean_uri;
+      goto clean_hdrs;
     }
+
+clean_hdrs:
+  rbtree_visit (&req->headers, header_free);
 
 clean_uri:
   mstr_free (&req->uri);
@@ -439,14 +446,20 @@ resource_init (resource_t *res, context_t *ctx)
 }
 
 static void
-serve_not_found (context_t *ctx)
+header_free (rbtree_node_t *n)
 {
-  static const char *res = "HTTP/1.1 404 NOT FOUND\r\n"
-                           "Server: httpd\r\n"
-                           "Content-Type: text/html\r\n"
-                           "Content-Length: 13\r\n\r\n"
-                           "404 NOT FOUND";
-  send_data (ctx, res, 99);
+  header_t *h = container_of (n, header_t, node);
+  mstr_free (&h->field);
+  mstr_free (&h->value);
+  free (h);
+}
+
+static int
+header_comp (const rbtree_node_t *a, const rbtree_node_t *b)
+{
+  const header_t *ha = container_of (a, header_t, node);
+  const header_t *hb = container_of (b, header_t, node);
+  return mstr_cmp_mstr (&ha->field, &hb->field);
 }
 
 static void
@@ -471,7 +484,7 @@ serve (void *arg)
   static __thread char buff[MAX_RESHEAD_LEN];
 
   int code = (init == 0) ? 200 : 404;
-  int size = header_init (buff, buff_size, code, &res);
+  int size = reshdr_init (buff, buff_size, code, &res);
 
   if (size <= 0)
     goto clean_res;
@@ -495,15 +508,32 @@ ret:
   client_free (arg);
 }
 
+static void
+serve_not_found (context_t *ctx)
+{
+  static const char *res = "HTTP/1.1 404 NOT FOUND\r\n"
+                           "Server: httpd\r\n"
+                           "Content-Type: text/html\r\n"
+                           "Content-Length: 13\r\n\r\n"
+                           "404 NOT FOUND";
+  send_data (ctx, res, 99);
+}
+
+static inline bool
+send_data (context_t *ctx, const void *data, size_t size)
+{
+  return size ? fwrite (data, 1, size, ctx->out) : true;
+}
+
 static int
-header_init (char *dst, int max, int code, resource_t *res)
+reshdr_init (char *dst, int max, int code, resource_t *res)
 {
   const char *msg, *mime;
   size_t size = res->size;
 
   context_t *ctx = res->ctx;
   request_t req = ctx->req;
-  int ver = req.ver;
+  int ver = req.proto;
 
   switch (code)
     {
@@ -552,10 +582,4 @@ header_init (char *dst, int max, int code, resource_t *res)
                               "\r\n";
 
   return snprintf (dst, max, format, ver, code, msg, mime, size);
-}
-
-static inline bool
-send_data (context_t *ctx, const void *data, size_t size)
-{
-  return size ? fwrite (data, 1, size, ctx->out) : true;
 }

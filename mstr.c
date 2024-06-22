@@ -112,30 +112,29 @@ mstr_substr (mstr_t *save, const mstr_t *from, size_t start, size_t n)
   if (n > len - start)
     n = len - start;
 
-  return mstr_assign_byte (save, (void *)pos, n);
+  return mstr_assign_byte (save, pos, n);
 }
 
 bool
 mstr_start_with_char (const mstr_t *str, char ch)
 {
-  return mstr_start_with_byte (str, (void *)&ch, 1);
+  return mstr_start_with_byte (str, &ch, 1);
 }
 
 bool
 mstr_start_with_cstr (const mstr_t *str, const char *cstr)
 {
-  return mstr_start_with_byte (str, (void *)cstr, strlen (cstr));
+  return mstr_start_with_byte (str, cstr, strlen (cstr));
 }
 
 bool
 mstr_start_with_mstr (const mstr_t *str, const mstr_t *other)
 {
-  return mstr_start_with_byte (str, (void *)mstr_data (other),
-                               mstr_len (other));
+  return mstr_start_with_byte (str, mstr_data (other), mstr_len (other));
 }
 
 bool
-mstr_start_with_byte (const mstr_t *str, const mstr_byte_t *src, size_t n)
+mstr_start_with_byte (const mstr_t *str, const void *src, size_t n)
 {
   if (!n || n > mstr_len (str))
     return false;
@@ -146,23 +145,23 @@ mstr_start_with_byte (const mstr_t *str, const mstr_byte_t *src, size_t n)
 bool
 mstr_end_with_char (const mstr_t *str, char ch)
 {
-  return mstr_end_with_byte (str, (void *)&ch, 1);
+  return mstr_end_with_byte (str, &ch, 1);
 }
 
 bool
 mstr_end_with_cstr (const mstr_t *str, const char *cstr)
 {
-  return mstr_end_with_byte (str, (void *)cstr, strlen (cstr));
+  return mstr_end_with_byte (str, cstr, strlen (cstr));
 }
 
 bool
 mstr_end_with_mstr (const mstr_t *str, const mstr_t *other)
 {
-  return mstr_end_with_byte (str, (void *)mstr_data (other), mstr_len (other));
+  return mstr_end_with_byte (str, mstr_data (other), mstr_len (other));
 }
 
 bool
-mstr_end_with_byte (const mstr_t *str, const mstr_byte_t *src, size_t n)
+mstr_end_with_byte (const mstr_t *str, const void *src, size_t n)
 {
   if (!n || n > mstr_len (str))
     return false;
@@ -174,23 +173,23 @@ mstr_end_with_byte (const mstr_t *str, const mstr_byte_t *src, size_t n)
 int
 mstr_cmp_char (const mstr_t *str, char ch)
 {
-  return mstr_cmp_byte (str, (void *)&ch, 1);
+  return mstr_cmp_byte (str, &ch, 1);
 }
 
 int
 mstr_cmp_cstr (const mstr_t *str, const char *cstr)
 {
-  return mstr_cmp_byte (str, (void *)cstr, strlen (cstr));
+  return mstr_cmp_byte (str, cstr, strlen (cstr));
 }
 
 int
 mstr_cmp_mstr (const mstr_t *str, const mstr_t *other)
 {
-  return mstr_cmp_byte (str, (void *)mstr_data (other), mstr_len (other));
+  return mstr_cmp_byte (str, mstr_data (other), mstr_len (other));
 }
 
 int
-mstr_cmp_byte (const mstr_t *str, const mstr_byte_t *src, size_t n)
+mstr_cmp_byte (const mstr_t *str, const void *src, size_t n)
 {
   if (!n)
     return 0;
@@ -207,23 +206,23 @@ mstr_cmp_byte (const mstr_t *str, const mstr_byte_t *src, size_t n)
 mstr_t *
 mstr_cat_char (mstr_t *str, char ch)
 {
-  return mstr_cat_byte (str, (void *)&ch, 1);
+  return mstr_cat_byte (str, &ch, 1);
 }
 
 mstr_t *
 mstr_cat_cstr (mstr_t *str, const char *cstr)
 {
-  return mstr_cat_byte (str, (void *)cstr, strlen (cstr));
+  return mstr_cat_byte (str, cstr, strlen (cstr));
 }
 
 mstr_t *
 mstr_cat_mstr (mstr_t *str, const mstr_t *other)
 {
-  return mstr_cat_byte (str, (void *)mstr_data (other), mstr_len (other));
+  return mstr_cat_byte (str, mstr_data (other), mstr_len (other));
 }
 
 mstr_t *
-mstr_cat_byte (mstr_t *str, const mstr_byte_t *src, size_t n)
+mstr_cat_byte (mstr_t *str, const void *src, size_t n)
 {
   if (!n)
     return str;
@@ -247,24 +246,23 @@ mstr_cat_byte (mstr_t *str, const mstr_byte_t *src, size_t n)
 mstr_t *
 mstr_insert_char (mstr_t *str, size_t pos, char ch)
 {
-  return mstr_insert_byte (str, pos, (void *)&ch, 1);
+  return mstr_insert_byte (str, pos, &ch, 1);
 }
 
 mstr_t *
 mstr_insert_cstr (mstr_t *str, size_t pos, const char *cstr)
 {
-  return mstr_insert_byte (str, pos, (void *)cstr, strlen (cstr));
+  return mstr_insert_byte (str, pos, cstr, strlen (cstr));
 }
 
 mstr_t *
 mstr_insert_mstr (mstr_t *str, size_t pos, const mstr_t *other)
 {
-  return mstr_insert_byte (str, pos, (void *)mstr_data (other),
-                           mstr_len (other));
+  return mstr_insert_byte (str, pos, mstr_data (other), mstr_len (other));
 }
 
 mstr_t *
-mstr_insert_byte (mstr_t *str, size_t pos, const mstr_byte_t *src, size_t n)
+mstr_insert_byte (mstr_t *str, size_t pos, const void *src, size_t n)
 {
   if (!n)
     return str;
@@ -300,23 +298,23 @@ mstr_insert_byte (mstr_t *str, size_t pos, const mstr_byte_t *src, size_t n)
 mstr_t *
 mstr_assign_char (mstr_t *str, char ch)
 {
-  return mstr_assign_byte (str, (void *)&ch, 1);
+  return mstr_assign_byte (str, &ch, 1);
 }
 
 mstr_t *
 mstr_assign_cstr (mstr_t *str, const char *cstr)
 {
-  return mstr_assign_byte (str, (void *)cstr, strlen (cstr));
+  return mstr_assign_byte (str, cstr, strlen (cstr));
 }
 
 mstr_t *
 mstr_assign_mstr (mstr_t *str, const mstr_t *other)
 {
-  return mstr_assign_byte (str, (void *)mstr_data (other), mstr_len (other));
+  return mstr_assign_byte (str, mstr_data (other), mstr_len (other));
 }
 
 mstr_t *
-mstr_assign_byte (mstr_t *str, const mstr_byte_t *src, size_t n)
+mstr_assign_byte (mstr_t *str, const void *src, size_t n)
 {
   if (!n)
     return str;
