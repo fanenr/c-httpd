@@ -1,0 +1,5 @@
+A tiny httpd lib (like libmicrohttpd).
+
+Usage: see httpd.h and test.c.
+
+Some intrusive data structures are used (https://github.com/fanenr/c-algo.git).
