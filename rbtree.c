@@ -220,6 +220,60 @@ ret:
     tree->root->color = RBTREE_BLACK;
 }
 
+rbtree_node_t *
+rbtree_last (const rbtree_t *tree)
+{
+  rbtree_node_t *last;
+
+  if ((last = tree->root))
+    for (rbtree_node_t *right; (right = last->right);)
+      last = right;
+
+  return last;
+}
+
+rbtree_node_t *
+rbtree_first (const rbtree_t *tree)
+{
+  rbtree_node_t *first;
+
+  if ((first = tree->root))
+    for (rbtree_node_t *left; (left = first->left);)
+      first = left;
+
+  return first;
+}
+
+rbtree_node_t *
+rbtree_next (const rbtree_node_t *node)
+{
+  rbtree_node_t *next;
+
+  if ((next = node->right))
+    for (rbtree_node_t *left; (left = next->left);)
+      next = left;
+  else
+    for (; (next = node->parent) && node != next->left;)
+      node = next;
+
+  return next;
+}
+
+rbtree_node_t *
+rbtree_prev (const rbtree_node_t *node)
+{
+  rbtree_node_t *prev;
+
+  if ((prev = node->left))
+    for (rbtree_node_t *right; (right = prev->right);)
+      prev = right;
+  else
+    for (; (prev = node->parent) && node != prev->right;)
+      node = prev;
+
+  return prev;
+}
+
 /* **************************************************************** */
 /*                               ext                                */
 /* **************************************************************** */
