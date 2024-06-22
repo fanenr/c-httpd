@@ -99,6 +99,8 @@ struct header_t
 };
 
 static void header_free (rbtree_node_t *n);
+static bool header_insert (rbtree_t *headers, header_t *header);
+static header_t *header_get (rbtree_t *headers, const char *field);
 static int header_comp (const rbtree_node_t *a, const rbtree_node_t *b);
 
 /* serve */
@@ -136,9 +138,6 @@ server_poll (server_t *serv)
   /* post task */
   if (threadpool_post (&serv->pool, serve, clnt) != 0)
     goto clean_sock;
-
-  printf ("new request from %s:%d\n", inet_ntoa (clnt->addr.sin_addr),
-          ntohs (clnt->addr.sin_port));
 
   return;
 
@@ -316,7 +315,7 @@ request_init (request_t *req, context_t *ctx)
       if (val_len < 0 || !mstr_assign_byte (&header->value, val_st, val_len))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_field);
 
-      if (!rbtree_insert (&req->headers, &header->node, header_comp))
+      if (!header_insert (&req->headers, header))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_value);
 
       continue;
@@ -452,6 +451,20 @@ header_free (rbtree_node_t *n)
   mstr_free (&h->field);
   mstr_free (&h->value);
   free (h);
+}
+
+static bool
+header_insert (rbtree_t *headers, header_t *header)
+{
+  return rbtree_insert (headers, &header->node, header_comp);
+}
+
+static header_t *
+header_get (rbtree_t *headers, const char *field)
+{
+  header_t temp = { .field.heap.data = (char *)field };
+  rbtree_node_t *ret = rbtree_find (headers, &temp.node, header_comp);
+  return ret ? container_of (ret, header_t, node) : NULL;
 }
 
 static int
