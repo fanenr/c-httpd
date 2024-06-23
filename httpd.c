@@ -472,7 +472,7 @@ header_comp (const rbtree_node_t *a, const rbtree_node_t *b)
 {
   const header_t *ha = container_of (a, header_t, node);
   const header_t *hb = container_of (b, header_t, node);
-  return mstr_cmp_mstr (&ha->field, &hb->field);
+  return mstr_icmp_mstr (&ha->field, &hb->field);
 }
 
 static void

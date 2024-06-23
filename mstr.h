@@ -85,8 +85,8 @@ extern bool mstr_end_with_cstr (const mstr_t *str, const char *cstr)
 extern bool mstr_end_with_mstr (const mstr_t *str, const mstr_t *other)
     attr_nonnull (1, 2);
 
-extern bool mstr_end_with_byte (const mstr_t *str, const void *src,
-                                size_t n) attr_nonnull (1, 2);
+extern bool mstr_end_with_byte (const mstr_t *str, const void *src, size_t n)
+    attr_nonnull (1, 2);
 
 /* compare */
 
@@ -99,6 +99,19 @@ extern int mstr_cmp_mstr (const mstr_t *str, const mstr_t *other)
     attr_nonnull (1, 2);
 
 extern int mstr_cmp_byte (const mstr_t *str, const void *src, size_t n)
+    attr_nonnull (1, 2);
+
+/* icompare */
+
+extern int mstr_icmp_char (const mstr_t *str, char ch) attr_nonnull (1);
+
+extern int mstr_icmp_cstr (const mstr_t *str, const char *cstr)
+    attr_nonnull (1, 2);
+
+extern int mstr_icmp_mstr (const mstr_t *str, const mstr_t *other)
+    attr_nonnull (1, 2);
+
+extern int mstr_icmp_byte (const mstr_t *str, const void *src, size_t n)
     attr_nonnull (1, 2);
 
 /* append */
@@ -125,9 +138,8 @@ extern mstr_t *mstr_insert_cstr (mstr_t *str, size_t pos, const char *cstr)
 extern mstr_t *mstr_insert_mstr (mstr_t *str, size_t pos, const mstr_t *other)
     attr_nonnull (1, 3);
 
-extern mstr_t *mstr_insert_byte (mstr_t *str, size_t pos,
-                                 const void *src, size_t n)
-    attr_nonnull (1, 3);
+extern mstr_t *mstr_insert_byte (mstr_t *str, size_t pos, const void *src,
+                                 size_t n) attr_nonnull (1, 3);
 
 /* assign */
 
