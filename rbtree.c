@@ -321,21 +321,21 @@ rbtree_insert (rbtree_t *tree, rbtree_node_t *node, rbtree_comp_t *comp)
 }
 
 static inline void
-rbtree_for_each_impl (rbtree_node_t *node, rbtree_visit_t *visit)
+rbtree_visit_impl (rbtree_node_t *node, rbtree_visit_t *func)
 {
   if (node)
     {
       rbtree_node_t *left = node->left;
       rbtree_node_t *right = node->right;
 
-      rbtree_for_each_impl (left, visit);
-      visit (node);
-      rbtree_for_each_impl (right, visit);
+      rbtree_visit_impl (left, func);
+      func (node);
+      rbtree_visit_impl (right, func);
     }
 }
 
 void
-rbtree_visit (rbtree_t *tree, rbtree_visit_t *visit)
+rbtree_visit (rbtree_t *tree, rbtree_visit_t *func)
 {
-  rbtree_for_each_impl (tree->root, visit);
+  rbtree_visit_impl (tree->root, func);
 }

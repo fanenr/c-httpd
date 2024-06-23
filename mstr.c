@@ -203,6 +203,39 @@ mstr_cmp_byte (const mstr_t *str, const void *src, size_t n)
   return len > n ? 1 : -1;
 }
 
+int
+mstr_icmp_char (const mstr_t *str, char ch)
+{
+  return mstr_icmp_byte (str, &ch, 1);
+}
+
+int
+mstr_icmp_cstr (const mstr_t *str, const char *cstr)
+{
+  return mstr_icmp_byte (str, cstr, strlen (cstr));
+}
+
+int
+mstr_icmp_mstr (const mstr_t *str, const mstr_t *other)
+{
+  return mstr_icmp_byte (str, mstr_data (other), mstr_len (other));
+}
+
+int
+mstr_icmp_byte (const mstr_t *str, const void *src, size_t n)
+{
+  if (!n)
+    return 0;
+
+  size_t len = mstr_len (str);
+  const char *data = mstr_data (str);
+  int ret = strncasecmp (data, src, n > len ? len : n);
+
+  if (ret != 0 || n == len)
+    return ret;
+  return len > n ? 1 : -1;
+}
+
 mstr_t *
 mstr_cat_char (mstr_t *str, char ch)
 {
