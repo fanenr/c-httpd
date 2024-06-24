@@ -288,30 +288,32 @@ request_init (request_t *req, context_t *ctx)
       size_t len = strlen (line);
       char *pos = line, *sep, *end;
 
-      /* reach end */
+      /* end of parsing */
       if (len == 2 && pos[0] == '\r' && pos[1] == '\n')
         return 0;
 
+      /* init sep and end */
       if (!(sep = strchr (pos, ':')) || !(end = strchr (sep, '\r')))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
 
       header_t *header;
+      ptrdiff_t fld_len = sep - pos;
+      char *val_st = sep + 1, *val_ed = end - 1;
+
+      /* init header */
       if (!(header = malloc (sizeof (header_t))))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
-      /* init field and value */
       header->field = header->value = MSTR_INIT;
 
-      ptrdiff_t fld_len = sep - pos;
       if (fld_len <= 0 || !mstr_assign_byte (&header->field, pos, fld_len))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header);
 
-      char *val_st = sep + 1, *val_ed = end - 1;
-      for (; *val_st == ' ' || *val_st == '\t'; val_st++)
-        ;
-      for (; *val_ed == ' ' || *val_ed == '\t'; val_ed--)
-        ;
+      for (; *val_st == ' ' || *val_st == '\t';)
+        val_st++;
+      for (; *val_ed == ' ' || *val_ed == '\t';)
+        val_ed--;
 
-      ptrdiff_t val_len = val_ed - val_st;
+      ptrdiff_t val_len = val_ed - val_st + 1;
       if (val_len < 0 || !mstr_assign_byte (&header->value, val_st, val_len))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_field);
 

@@ -1,14 +1,21 @@
 #include "mstr.h"
 
+#include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define set_len(str, new)                                                     \
   do                                                                          \
-    if (!mstr_is_sso (str))                                                   \
-      (str)->heap.len = new;                                                  \
+    if (mstr_is_sso (str))                                                    \
+      {                                                                       \
+        (str)->sso.len = new;                                                 \
+        (str)->sso.data[new] = 0;                                             \
+      }                                                                       \
     else                                                                      \
-      (str)->sso.len = new;                                                   \
+      {                                                                       \
+        (str)->heap.len = new;                                                \
+        (str)->heap.data[new] = 0;                                            \
+      }                                                                       \
   while (0)
 
 void
@@ -22,7 +29,6 @@ mstr_free (mstr_t *str)
 void
 mstr_clear (mstr_t *str)
 {
-  *mstr_data (str) = '\0';
   set_len (str, 0);
 }
 
@@ -82,13 +88,16 @@ mstr_remove (mstr_t *str, size_t start, size_t n)
     /* out of range */
     return NULL;
 
-  if (n > len - start)
-    n = len - start;
+  if (start + n >= len)
+    {
+      set_len (str, start);
+      return str;
+    }
 
   char *dest = data + start;
   char *src = dest + n;
 
-  if (memmove (dest, src, len - start - n + 1) != dest)
+  if (memmove (dest, src, len - start - n) != dest)
     /* move failed */
     return NULL;
 
@@ -113,6 +122,80 @@ mstr_substr (mstr_t *save, const mstr_t *from, size_t start, size_t n)
     n = len - start;
 
   return mstr_assign_byte (save, pos, n);
+}
+
+void
+mstr_trim (mstr_t *str)
+{
+  size_t len;
+
+  if (!(len = mstr_len (str)))
+    return;
+
+  char *data = mstr_data (str);
+  char *end = data + len - 1;
+  char *start = data;
+  ptrdiff_t newlen;
+
+  for (; start <= end && isspace (*start);)
+    start++;
+  for (; end >= start && isspace (*end);)
+    end--;
+  if ((newlen = end - start + 1) <= 0)
+    return mstr_clear (str);
+  if ((size_t)newlen == len)
+    return;
+
+  if (memmove (data, start, newlen) == data)
+    set_len (str, newlen);
+}
+
+void
+mstr_ltrim (mstr_t *str)
+{
+  size_t len;
+
+  if (!(len = mstr_len (str)))
+    return;
+
+  char *data = mstr_data (str);
+  char *end = data + len - 1;
+  char *start = data;
+  ptrdiff_t newlen;
+
+  for (; start <= end && isspace (*start);)
+    start++;
+  if ((newlen = end - start + 1) <= 0)
+    return mstr_clear (str);
+  if ((size_t)newlen == len)
+    return;
+
+  if (memmove (data, start, newlen) == data)
+    set_len (str, newlen);
+}
+
+void
+mstr_rtrim (mstr_t *str)
+{
+  size_t len;
+
+  if (!(len = mstr_len (str)))
+    return;
+
+  char *data = mstr_data (str);
+  char *end = data + len - 1;
+  char *start = data;
+  ptrdiff_t newlen;
+
+  for (; end >= start && isspace (*end);)
+    end--;
+  if ((newlen = end - start + 1) <= 0)
+    return mstr_clear (str);
+  if ((size_t)newlen == len)
+    return;
+
+  if (memmove (data, start, newlen) == data)
+    set_len (str, newlen);
 }
 
 bool
@@ -269,8 +352,6 @@ mstr_cat_byte (mstr_t *str, const void *src, size_t n)
   if (memcpy (dest, src, n) != dest)
     /* copy failed */
     return NULL;
-  /* save NULL */
-  dest[n] = '\0';
 
   set_len (str, len + n);
   return str;
@@ -316,7 +397,7 @@ mstr_insert_byte (mstr_t *str, size_t pos, const void *src, size_t n)
   char *start = data + pos;
   char *dest = start + n;
 
-  if (memmove (dest, start, len - pos + 1) != dest)
+  if (memmove (dest, start, len - pos) != dest)
     /* move failed */
     return NULL;
 
@@ -360,8 +441,6 @@ mstr_assign_byte (mstr_t *str, const void *src, size_t n)
   if (memcpy (data, src, n) != data)
     /* copy failed */
     return NULL;
-  /* save NULL */
-  data[n] = '\0';
 
   set_len (str, n);
   return str;

@@ -62,6 +62,14 @@ extern mstr_t *mstr_remove (mstr_t *str, size_t start, size_t n)
 extern mstr_t *mstr_substr (mstr_t *save, const mstr_t *from, size_t start,
                             size_t n) attr_nonnull (1, 2);
 
+/* trim */
+
+extern void mstr_trim (mstr_t *str) attr_nonnull (1);
+
+extern void mstr_ltrim (mstr_t *str) attr_nonnull (1);
+
+extern void mstr_rtrim (mstr_t *str) attr_nonnull (1);
+
 /* is start with */
 
 extern bool mstr_start_with_char (const mstr_t *str, char ch) attr_nonnull (1);
