@@ -7,7 +7,7 @@ ANZ    = #-fanalyzer
 ifeq ($(MODE), debug)
 	LTO_LDFLAGS  =
 	LTO_CFLAGS   =
-	OPT_LEVEL    = -Og
+	OPT_LEVEL    = -O0
 
 	DBG_LDFLAGS  = -g
 	DBG_CFLAGS   = -ggdb3
