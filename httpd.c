@@ -80,7 +80,6 @@ static int context_init (context_t *ctx, client_t *clnt);
 
 struct resource_t
 {
-  int mime;
   FILE *src;
   size_t size;
   context_t *ctx;
@@ -109,7 +108,8 @@ static void serve (void *arg);
 static void serve_not_found (context_t *ctx);
 
 static bool send_data (context_t *ctx, const void *data, size_t n);
-static int reshdr_init (char *dst, int max, int code, resource_t *res);
+static int reshdr_init (char *dst, int max, int code, const char *msg,
+                        resource_t *res);
 
 void
 server_free (server_t *serv)
@@ -412,7 +412,7 @@ resource_init (resource_t *res, context_t *ctx)
     return HTTPD_ERR_RESOURCE_IHIT_404;
 
   if (S_ISDIR (info.st_mode))
-    for (size_t i = 0; i < indexs_size; i++)
+    for (int i = 0; i < indexs_size; i++)
       {
         strcpy (path + path_len, indexs[i]);
         if (stat (path, &info) == 0 && S_ISREG (info.st_mode))
@@ -426,22 +426,6 @@ resource_init (resource_t *res, context_t *ctx)
 
   /* init size */
   res->size = info.st_size;
-
-  /* init mime */
-  char *pos = strrchr (path, '.');
-
-  if (pos == NULL)
-    res->mime = HTTPD_MIME_TEXT;
-  else if (strcmp (pos, ".html") == 0)
-    res->mime = HTTPD_MIME_HTML;
-  else if (strcmp (pos, ".htm") == 0)
-    res->mime = HTTPD_MIME_HTML;
-  else if (strcmp (pos, ".css") == 0)
-    res->mime = HTTPD_MIME_CSS;
-  else if (strcmp (pos, ".js") == 0)
-    res->mime = HTTPD_MIME_JS;
-  else
-    res->mime = HTTPD_MIME_PLAIN;
 
   return 0;
 }
@@ -464,9 +448,10 @@ header_insert (rbtree_t *headers, header_t *header)
 static header_t *
 header_get (rbtree_t *headers, const char *field)
 {
-  header_t temp = { .field.heap.data = (char *)field };
-  rbtree_node_t *ret = rbtree_find (headers, &temp.node, header_comp);
-  return ret ? container_of (ret, header_t, node) : NULL;
+  header_t temp
+      = { .field.heap = { .data = (char *)field, .len = strlen (field) } };
+  rbtree_node_t *node = rbtree_find (headers, &temp.node, header_comp);
+  return node ? container_of (node, header_t, node) : NULL;
 }
 
 static int
@@ -475,6 +460,22 @@ header_comp (const rbtree_node_t *a, const rbtree_node_t *b)
   const header_t *ha = container_of (a, header_t, node);
   const header_t *hb = container_of (b, header_t, node);
   return mstr_icmp_mstr (&ha->field, &hb->field);
+}
+
+static void
+print_headers (request_t *req)
+{
+  const rbtree_t *tree = &req->headers;
+
+  for (rbtree_node_t *node = rbtree_first (tree); node;
+       node = rbtree_next (node))
+    {
+      header_t *header = container_of (node, header_t, node);
+      printf ("[%s]:[%s]\n", mstr_data (&header->field),
+              mstr_data (&header->value));
+    }
+
+  printf ("\n");
 }
 
 static void
@@ -498,8 +499,8 @@ serve (void *arg)
   const size_t buff_size = MAX_RESHEAD_LEN;
   static __thread char buff[MAX_RESHEAD_LEN];
 
-  int code = (init == 0) ? 200 : 404;
-  int size = reshdr_init (buff, buff_size, code, &res);
+  /* init response header */
+  int size = reshdr_init (buff, buff_size, 200, "OK", &res);
 
   if (size <= 0)
     goto clean_res;
@@ -541,53 +542,35 @@ send_data (context_t *ctx, const void *data, size_t size)
 }
 
 static int
-reshdr_init (char *dst, int max, int code, resource_t *res)
+reshdr_init (char *dst, int max, int code, const char *msg, resource_t *res)
 {
-  const char *msg, *mime;
+  char mime[32];
   size_t size = res->size;
+  request_t *req = &res->ctx->req;
 
-  context_t *ctx = res->ctx;
-  request_t req = ctx->req;
-  int ver = req.proto;
+  /* print_headers (req); */
 
-  switch (code)
+  header_t *accept = header_get (&req->headers, "Accept");
+  mstr_t *value = &accept->value;
+
+  if (accept && mstr_len (value))
     {
-    case 200:
-      msg = "OK";
-      break;
-
-    case 404:
-      msg = "NOT FOUND";
-      break;
-
-    default:
-      /* only support 200 and 404 */
-      return 0;
+      char *data = mstr_data (value), *sep;
+      if ((sep = strchr (data, ',')))
+        {
+          size_t len = sep - data;
+          if (strncmp (data, "*/*", len) == 0)
+            strcpy (mime, "text/plain");
+          else
+            strncpy (mime, data, len);
+        }
+      else if (strcmp (data, "*/*") == 0)
+        strcpy (mime, "text/plain");
+      else
+        strcpy (mime, data);
     }
-
-  switch (res->mime)
-    {
-    case HTTPD_MIME_JS:
-      mime = "application/javascript";
-      break;
-
-    case HTTPD_MIME_CSS:
-      mime = "text/css";
-      break;
-
-    case HTTPD_MIME_HTML:
-      mime = "text/html";
-      break;
-
-    case HTTPD_MIME_TEXT:
-    case HTTPD_MIME_PLAIN:
-      mime = "text/plain";
-      break;
-
-    default:
-      mime = "text/plain";
-      break;
-    }
+  else
+    strcpy (mime, "text/plain");
 
   static const char *format = "HTTP/1.%d %d %s"
                               "\r\n"
@@ -596,5 +579,5 @@ reshdr_init (char *dst, int max, int code, resource_t *res)
                               "Content-Length: %lu\r\n"
                               "\r\n";
 
-  return snprintf (dst, max, format, ver, code, msg, mime, size);
+  return snprintf (dst, max, format, req->proto, code, msg, mime, size);
 }
