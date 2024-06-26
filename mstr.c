@@ -135,15 +135,15 @@ mstr_trim (mstr_t *str)
   char *data = mstr_data (str);
   char *end = data + len - 1;
   char *start = data;
-  ptrdiff_t newlen;
+  size_t newlen;
 
   for (; start <= end && isspace (*start);)
     start++;
   for (; end >= start && isspace (*end);)
     end--;
-  if ((newlen = end - start + 1) <= 0)
+  if (!(newlen = end - start + 1))
     return mstr_clear (str);
-  if ((size_t)newlen == len)
+  if (newlen == len)
     return;
 
   if (memmove (data, start, newlen) == data)
@@ -161,13 +161,13 @@ mstr_ltrim (mstr_t *str)
   char *data = mstr_data (str);
   char *end = data + len - 1;
   char *start = data;
-  ptrdiff_t newlen;
+  size_t newlen;
 
   for (; start <= end && isspace (*start);)
     start++;
-  if ((newlen = end - start + 1) <= 0)
+  if (!(newlen = end - start + 1))
     return mstr_clear (str);
-  if ((size_t)newlen == len)
+  if (newlen == len)
     return;
 
   if (memmove (data, start, newlen) == data)
@@ -185,13 +185,13 @@ mstr_rtrim (mstr_t *str)
   char *data = mstr_data (str);
   char *end = data + len - 1;
   char *start = data;
-  ptrdiff_t newlen;
+  size_t newlen;
 
   for (; end >= start && isspace (*end);)
     end--;
-  if ((newlen = end - start + 1) <= 0)
+  if (!(newlen = end - start + 1))
     return mstr_clear (str);
-  if ((size_t)newlen == len)
+  if (newlen == len)
     return;
 
   if (memmove (data, start, newlen) == data)
@@ -274,16 +274,17 @@ mstr_cmp_mstr (const mstr_t *str, const mstr_t *other)
 int
 mstr_cmp_byte (const mstr_t *str, const void *src, size_t n)
 {
-  if (!n)
+  size_t len = mstr_len (str);
+
+  if (!n || !len)
     return 0;
 
-  size_t len = mstr_len (str);
   const char *data = mstr_data (str);
   int ret = memcmp (data, src, n > len ? len : n);
 
   if (ret != 0 || n == len)
     return ret;
-  return len > n ? 1 : -1;
+  return n < len ? 1 : -1;
 }
 
 int
@@ -307,16 +308,17 @@ mstr_icmp_mstr (const mstr_t *str, const mstr_t *other)
 int
 mstr_icmp_byte (const mstr_t *str, const void *src, size_t n)
 {
-  if (!n)
+  size_t len = mstr_len (str);
+
+  if (!n || !len)
     return 0;
 
-  size_t len = mstr_len (str);
   const char *data = mstr_data (str);
   int ret = strncasecmp (data, src, n > len ? len : n);
 
   if (ret != 0 || n == len)
     return ret;
-  return len > n ? 1 : -1;
+  return n < len ? 1 : -1;
 }
 
 mstr_t *
