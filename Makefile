@@ -6,7 +6,8 @@ export CFLAGS LDFLAGS
 .PHONY: all
 all: test
 
-test: test.o mstr.o httpd.o rbtree.o threadpool.o
+test: test.o mstr.o mime.o httpd.o\
+      rbtree.o threadpool.o
 	gcc $(LDFLAGS) -o $@ $^
 
 %.o: %.c

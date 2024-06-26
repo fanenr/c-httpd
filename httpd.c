@@ -1,5 +1,6 @@
 #include "httpd.h"
 #include "config.h"
+#include "mime.h"
 #include "rbtree.h"
 
 #include <ctype.h>
@@ -82,6 +83,7 @@ struct resource_t
 {
   FILE *src;
   size_t size;
+  mstr_t path;
   context_t *ctx;
 };
 
@@ -387,6 +389,7 @@ static void
 resource_free (resource_t *res)
 {
   fclose (res->src);
+  mstr_free (&res->path);
 }
 
 static int
@@ -426,6 +429,11 @@ resource_init (resource_t *res, context_t *ctx)
 
   /* init size */
   res->size = info.st_size;
+
+  /* init path */
+  res->path = MSTR_INIT;
+  if (!mstr_assign_cstr (&res->path, path))
+    return HTTPD_ERR_RESOURCE_IHIT_PATH;
 
   return 0;
 }
@@ -544,33 +552,36 @@ send_data (context_t *ctx, const void *data, size_t size)
 static int
 reshdr_init (char *dst, int max, int code, const char *msg, resource_t *res)
 {
-  char mime[32];
+  const char *mime;
   size_t size = res->size;
   request_t *req = &res->ctx->req;
 
   /* print_headers (req); */
 
-  header_t *accept = header_get (&req->headers, "Accept");
-  mstr_t *value = &accept->value;
+  // header_t *accept = header_get (&req->headers, "Accept");
+  // mstr_t *value = &accept->value;
 
-  if (accept && mstr_len (value))
-    {
-      char *data = mstr_data (value), *sep;
-      if ((sep = strchr (data, ',')))
-        {
-          size_t len = sep - data;
-          if (strncmp (data, "*/*", len) == 0)
-            strcpy (mime, "text/plain");
-          else
-            strncpy (mime, data, len);
-        }
-      else if (strcmp (data, "*/*") == 0)
-        strcpy (mime, "text/plain");
-      else
-        strcpy (mime, data);
-    }
-  else
-    strcpy (mime, "text/plain");
+  // if (accept && mstr_len (value))
+  //   {
+  //     char *data = mstr_data (value), *sep;
+  //     if ((sep = strchr (data, ',')))
+  //       {
+  //         size_t len = sep - data;
+  //         if (strncmp (data, "*/*", len) == 0)
+  //           strcpy (mime, "text/plain");
+  //         else
+  //           strncpy (mime, data, len);
+  //       }
+  //     else if (strcmp (data, "*/*") == 0)
+  //       strcpy (mime, "text/plain");
+  //     else
+  //       strcpy (mime, data);
+  //   }
+  // else
+  //   strcpy (mime, "text/plain");
+
+  if (!(mime = mime_of (mstr_data (&res->path))))
+    mime = "text/plain";
 
   static const char *format = "HTTP/1.%d %d %s"
                               "\r\n"
