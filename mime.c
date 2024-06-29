@@ -2,47 +2,49 @@
 #include <string.h>
 
 static const char *table[][2] = {
-  { ".html", "text/html" },
-  { ".htm", "text/html" },
-  { ".js", "text/javascript" },
   { ".css", "text/css" },
+  { ".htm", "text/html" },
+  { ".html", "text/html" },
   { ".txt", "text/plain" },
+  { ".js", "text/javascript" },
 
   { ".png", "image/png" },
+  { ".bmp", "image/bmp" },
+  { ".gif", "image/gif" },
   { ".jpg", "image/jpeg" },
   { ".jpeg", "image/jpeg" },
-  { ".gif", "image/gif" },
+  { ".webp", "image/webp" },
+  { ".ico", "image/x-icon" },
   { ".svg", "image/svg+xml" },
-  { ".bmp", "image/x-ms-bmp" },
-  { ".ico", "image/vnd.microsoft.icon" },
 
   { ".ttf", "font/ttf" },
   { ".otf", "font/otf" },
   { ".woff", "font/woff" },
   { ".woff2", "font/woff2" },
 
-  { ".mp3", "audio/mpeg" },
   { ".wav", "audio/wav" },
+  { ".aac", "audio/aac" },
+  { ".mp3", "audio/mpeg" },
+  { ".flac", "audio/flac" },
 
   { ".mp4", "video/mp4" },
+  { ".webm", "video/webm" },
+  { ".flv", "video/x-flv" },
   { ".avi", "video/x-msvideo" },
   { ".mkv", "video/x-matroska" },
-  { ".flv", "video/x-flv" },
 
+  { ".zip", "application/zip" },
   { ".gz", "application/gzip" },
   { ".tgz", "application/gzip" },
-  { ".tar", "application/x-tar" },
   { ".bz", "application/x-bzip" },
-  { ".bz2", "application/x-bzip2" },
-  { ".zip", "application/zip" },
+  { ".tar", "application/x-tar" },
   { ".rar", "application/x-rar" },
+  { ".bz2", "application/x-bzip2" },
   { ".7z", "application/x-7z-compressed" },
 
   { ".pdf", "application/pdf" },
   { ".json", "application/json" },
-  { ".doc", "application/vnd.ms-word" },
-  { ".xls", "application/vnd.ms-excel" },
-  { ".ppt", "application/vnd.ms-powerpoint" },
+  { ".epub", "application/epub+zip" },
 };
 
 static const size_t table_size = sizeof (table) / sizeof (*table);
