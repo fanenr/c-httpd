@@ -471,22 +471,6 @@ header_comp (const rbtree_node_t *a, const rbtree_node_t *b)
 }
 
 static void
-print_headers (request_t *req)
-{
-  const rbtree_t *tree = &req->headers;
-
-  for (rbtree_node_t *node = rbtree_first (tree); node;
-       node = rbtree_next (node))
-    {
-      header_t *header = container_of (node, header_t, node);
-      printf ("[%s]:[%s]\n", mstr_data (&header->field),
-              mstr_data (&header->value));
-    }
-
-  printf ("\n");
-}
-
-static void
 serve (void *arg)
 {
   context_t ctx;
@@ -555,30 +539,6 @@ reshdr_init (char *dst, int max, int code, const char *msg, resource_t *res)
   const char *mime;
   size_t size = res->size;
   request_t *req = &res->ctx->req;
-
-  /* print_headers (req); */
-
-  // header_t *accept = header_get (&req->headers, "Accept");
-  // mstr_t *value = &accept->value;
-
-  // if (accept && mstr_len (value))
-  //   {
-  //     char *data = mstr_data (value), *sep;
-  //     if ((sep = strchr (data, ',')))
-  //       {
-  //         size_t len = sep - data;
-  //         if (strncmp (data, "*/*", len) == 0)
-  //           strcpy (mime, "text/plain");
-  //         else
-  //           strncpy (mime, data, len);
-  //       }
-  //     else if (strcmp (data, "*/*") == 0)
-  //       strcpy (mime, "text/plain");
-  //     else
-  //       strcpy (mime, data);
-  //   }
-  // else
-  //   strcpy (mime, "text/plain");
 
   if (!(mime = mime_of (mstr_data (&res->path))))
     mime = "text/plain";
