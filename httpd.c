@@ -107,6 +107,7 @@ static int header_comp (const rbtree_node_t *a, const rbtree_node_t *b);
 /* serve */
 
 static void serve (void *arg);
+static void serve_file (context_t *ctx);
 static void serve_not_found (context_t *ctx);
 
 static bool send_data (context_t *ctx, const void *data, size_t n);
@@ -474,18 +475,27 @@ static void
 serve (void *arg)
 {
   context_t ctx;
-  resource_t res;
-
   if (context_init (&ctx, arg) != 0)
-    goto ret;
+    goto clean_arg;
 
-  int init = resource_init (&res, &ctx);
+  serve_file (&ctx);
+  context_free (&ctx);
+
+clean_arg:
+  client_free (arg);
+}
+
+static void
+serve_file (context_t *ctx)
+{
+  resource_t res;
+  int init = resource_init (&res, ctx);
 
   if (init != 0)
     {
       if (init == HTTPD_ERR_RESOURCE_IHIT_404)
-        serve_not_found (&ctx);
-      goto clean_ctx;
+        serve_not_found (ctx);
+      return;
     }
 
   const size_t buff_size = MAX_RESHEAD_LEN;
@@ -498,22 +508,16 @@ serve (void *arg)
     goto clean_res;
 
   /* send header */
-  if (!send_data (&ctx, buff, size))
+  if (!send_data (ctx, buff, size))
     goto clean_res;
 
   /* send data */
   for (; (size = fread (buff, 1, buff_size, res.src));)
-    if (!send_data (&ctx, buff, size))
+    if (!send_data (ctx, buff, size))
       goto clean_res;
 
 clean_res:
   resource_free (&res);
-
-clean_ctx:
-  context_free (&ctx);
-
-ret:
-  client_free (arg);
 }
 
 static void
