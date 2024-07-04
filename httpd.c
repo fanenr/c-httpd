@@ -117,7 +117,8 @@ static int reshdr_init (char *dst, int max, int code, const char *msg,
 void
 server_free (server_t *serv)
 {
-  threadpool_free (&serv->pool);
+  threadpool_free (&serv->tpool);
+  arena_free (&serv->mpool);
   mstr_free (&serv->root);
   close (serv->sock);
 }
@@ -128,8 +129,8 @@ server_poll (server_t *serv)
   client_t *clnt;
   socklen_t len = sizeof (clnt->addr);
 
-  if (!(clnt = malloc (sizeof (client_t))))
-    error ("malloc failed");
+  if (!(clnt = arena_alloc (&serv->mpool, sizeof (client_t))))
+    error ("arena_alloc failed");
 
   /* init serv */
   clnt->serv = serv;
@@ -139,7 +140,7 @@ server_poll (server_t *serv)
     goto clean_clnt;
 
   /* post task */
-  if (threadpool_post (&serv->pool, serve, clnt) != 0)
+  if (threadpool_post (&serv->tpool, serve, clnt) != 0)
     goto clean_sock;
 
   return;
@@ -159,6 +160,9 @@ server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
 
   /* init port */
   serv->port = port;
+
+  /* init mpool */
+  serv->mpool = ARENA_INIT;
 
   /* init addr */
   serv->addr = (sockaddr4_t){
@@ -189,8 +193,8 @@ server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
   if (!mstr_assign_cstr (&serv->root, root))
     reto (HTTPD_ERR_SERVER_INIT_ROOT, clean_sock);
 
-  /* init pool */
-  if (threadpool_init (&serv->pool, threads) != 0)
+  /* init tpool */
+  if (threadpool_init (&serv->tpool, threads) != 0)
     reto (HTTPD_ERR_SERVER_INIT_POOL, clean_root);
 
   /* listen */
@@ -200,7 +204,7 @@ server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
   return 0;
 
 clean_pool:
-  threadpool_free (&serv->pool);
+  threadpool_free (&serv->tpool);
 
 clean_root:
   mstr_free (&serv->root);
@@ -216,7 +220,6 @@ static void
 client_free (client_t *clnt)
 {
   close (clnt->sock);
-  free (clnt);
 }
 
 static void

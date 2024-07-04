@@ -299,6 +299,7 @@ rbtree_node_t *
 rbtree_insert (rbtree_t *tree, rbtree_node_t *node, rbtree_comp_t *comp)
 {
   int comp_ret = 0;
+  rbtree_node_t **inpos;
   rbtree_node_t *parent = NULL;
 
   for (rbtree_node_t *curr = tree->root; curr;)
@@ -312,8 +313,8 @@ rbtree_insert (rbtree_t *tree, rbtree_node_t *node, rbtree_comp_t *comp)
       curr = comp_ret < 0 ? curr->left : curr->right;
     }
 
-  rbtree_node_t **inpos
-      = comp_ret ? comp_ret < 0 ? &parent->left : &parent->right : &tree->root;
+  inpos = comp_ret ? (comp_ret < 0 ? &parent->left : &parent->right)
+                   : &tree->root;
 
   rbtree_link (tree, inpos, parent, node);
 
