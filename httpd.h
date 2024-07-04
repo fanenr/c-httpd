@@ -1,6 +1,7 @@
 #ifndef HTTPD_H
 #define HTTPD_H
 
+#include "arena.h"
 #include "mstr.h"
 #include "threadpool.h"
 
@@ -68,8 +69,9 @@ struct server_t
   int sock;
   mstr_t root;
   uint16_t port;
+  arena_t mpool;
   sockaddr4_t addr;
-  threadpool_t pool;
+  threadpool_t tpool;
 };
 
 extern void server_free (server_t *serv);
