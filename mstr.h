@@ -39,6 +39,12 @@ union mstr_t
 #define MSTR_INIT                                                             \
   (mstr_t) { .sso.flg = MSTR_FLG_SSO }
 
+#define MSTR_VIEW(src, size)                                                  \
+  (mstr_t)                                                                    \
+  {                                                                           \
+    .heap = {.data = (char *)(src), .len = (size) }                           \
+  }
+
 #define mstr_is_sso(str) ((str)->sso.flg == MSTR_FLG_SSO)
 #define mstr_is_heap(str) ((str)->sso.flg == MSTR_FLG_HEAP)
 

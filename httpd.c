@@ -40,7 +40,6 @@ typedef struct header_t header_t;
 typedef struct client_t client_t;
 typedef struct request_t request_t;
 typedef struct context_t context_t;
-typedef struct resource_t resource_t;
 
 /* client */
 
@@ -78,20 +77,6 @@ struct context_t
 static void context_free (context_t *ctx);
 static int context_init (context_t *ctx, client_t *clnt);
 
-/* resource */
-
-struct resource_t
-{
-  int fd;
-  void *data;
-  size_t size;
-  mstr_t path;
-  context_t *ctx;
-};
-
-static void resource_free (resource_t *res);
-static int resource_init (resource_t *res, context_t *ctx);
-
 /* header */
 
 struct header_t
@@ -112,6 +97,7 @@ static void serve (void *arg);
 static void serve_file (context_t *ctx);
 static void serve_not_found (context_t *ctx);
 
+static resource_t *resource_get (context_t *ctx);
 static bool send_data (context_t *ctx, const void *data, size_t n);
 static int reshdr_init (char *dst, int max, int code, const char *msg,
                         resource_t *res);
@@ -120,6 +106,7 @@ void
 server_free (server_t *serv)
 {
   threadpool_free (&serv->tpool);
+  respool_free (&serv->rpool);
   arena_free (&serv->mpool);
   mstr_free (&serv->root);
   close (serv->sock);
@@ -173,13 +160,30 @@ server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
     .sin_addr.s_addr = htonl (INADDR_ANY),
   };
 
+  /* init root */
+  serv->root = MSTR_INIT;
+  if (!mstr_assign_cstr (&serv->root, root))
+    return HTTPD_ERR_SERVER_INIT_ROOT;
+
+  /* init rpool */
+  if (respool_init (&serv->rpool) != 0)
+    reto (HTTPD_ERR_SERVER_INIT_RPOOL, clean_root);
+
+  /* init tpool */
+  if (threadpool_init (&serv->tpool, threads) != 0)
+    reto (HTTPD_ERR_SERVER_INIT_TPOOL, clean_rpool);
+
   /* init sock */
   if ((serv->sock = socket (AF_INET, SOCK_STREAM, 0)) == -1)
-    reto (HTTPD_ERR_SERVER_INIT_SOCK, ret);
+    reto (HTTPD_ERR_SERVER_INIT_SOCK, clean_tpool);
 
   /* bind addr */
   if (bind (serv->sock, (void *)&serv->addr, sizeof (serv->addr)) != 0)
     reto (HTTPD_ERR_SERVER_INIT_BIND, clean_sock);
+
+  /* listen */
+  if (listen (serv->sock, backlog) != 0)
+    reto (HTTPD_ERR_SERVER_INIT_LISTEN, clean_sock);
 
   /* open reuseaddr option */
   if (flags & SERVER_REUSEADDR)
@@ -190,31 +194,20 @@ server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
         reto (HTTPD_ERR_SERVER_INIT_REUSEADDR, clean_sock);
     }
 
-  /* init root */
-  serv->root = MSTR_INIT;
-  if (!mstr_assign_cstr (&serv->root, root))
-    reto (HTTPD_ERR_SERVER_INIT_ROOT, clean_sock);
-
-  /* init tpool */
-  if (threadpool_init (&serv->tpool, threads) != 0)
-    reto (HTTPD_ERR_SERVER_INIT_POOL, clean_root);
-
-  /* listen */
-  if (listen (serv->sock, backlog) != 0)
-    reto (HTTPD_ERR_SERVER_INIT_LISTEN, clean_pool);
-
   return 0;
-
-clean_pool:
-  threadpool_free (&serv->tpool);
-
-clean_root:
-  mstr_free (&serv->root);
 
 clean_sock:
   close (serv->sock);
 
-ret:
+clean_tpool:
+  threadpool_free (&serv->tpool);
+
+clean_rpool:
+  respool_free (&serv->rpool);
+
+clean_root:
+  mstr_free (&serv->root);
+
   return ret;
 }
 
@@ -240,11 +233,11 @@ request_init (request_t *req, context_t *ctx)
   int ret;
 
   if (!fgets (line, MAX_REQLINE_LEN, ctx->in))
-    reto (HTTPD_ERR_REQUEST_INIT_LINE, ret);
+    return HTTPD_ERR_REQUEST_INIT_LINE;
 
   pos = line;
   if (!(end = strchr (pos, ' ')))
-    reto (HTTPD_ERR_REQUEST_INIT_METHOD, ret);
+    return HTTPD_ERR_REQUEST_INIT_METHOD;
   len = end - pos;
 
   /* init method */
@@ -262,13 +255,13 @@ request_init (request_t *req, context_t *ctx)
 
   pos = end + 1;
   if (!(end = strchr (pos, ' ')))
-    reto (HTTPD_ERR_REQUEST_INIT_URI, ret);
+    return HTTPD_ERR_REQUEST_INIT_URI;
   len = end - pos;
 
   /* init uri */
   req->uri = MSTR_INIT;
   if (!mstr_assign_byte (&req->uri, pos, len))
-    reto (HTTPD_ERR_REQUEST_INIT_URI, ret);
+    return HTTPD_ERR_REQUEST_INIT_URI;
 
   pos = end + 1;
   if (!(end = strchr (pos, '\r')))
@@ -345,7 +338,6 @@ clean_hdrs:
 clean_uri:
   mstr_free (&req->uri);
 
-ret:
   return ret;
 }
 
@@ -381,78 +373,6 @@ clean_in:
 }
 
 static void
-resource_free (resource_t *res)
-{
-  munmap (res->data, res->size);
-  mstr_free (&res->path);
-  close (res->fd);
-}
-
-static int
-resource_init (resource_t *res, context_t *ctx)
-{
-  int ret;
-
-  /* init ctx */
-  res->ctx = ctx;
-
-  /* build path */
-  client_t *clnt = ctx->clnt;
-  mstr_t *root = &clnt->serv->root, *uri = &ctx->req.uri;
-  size_t root_len = mstr_len (root), uri_len = mstr_len (uri);
-
-  size_t path_len = root_len + uri_len;
-  char *path = alloca (path_len + 16);
-  struct stat info;
-
-  path[path_len] = '\0';
-  memcpy (path, mstr_data (root), root_len);
-  memcpy (path + root_len, mstr_data (uri), uri_len);
-
-  /* query info */
-  if (stat (path, &info) != 0)
-    return HTTPD_ERR_RESOURCE_IHIT_404;
-
-  if (S_ISDIR (info.st_mode))
-    for (int i = 0; i < indexs_size; i++)
-      {
-        strcpy (path + path_len, indexs[i]);
-        if (stat (path, &info) == 0 && S_ISREG (info.st_mode))
-          break;
-        if (i == indexs_size - 1)
-          return HTTPD_ERR_RESOURCE_IHIT_404;
-      }
-
-  /* init size */
-  res->size = info.st_size;
-
-  /* init fd */
-  int fd = open (path, O_RDONLY);
-  if ((res->fd = fd) == -1)
-    return HTTPD_ERR_RESOURCE_IHIT_FD;
-
-  /* init data */
-  void *data = mmap (NULL, res->size, PROT_READ, MAP_PRIVATE, fd, 0);
-  if ((res->data = data) == MAP_FAILED)
-    reto (HTTPD_ERR_RESOURCE_IHIT_DATA, clean_fd);
-
-  /* init path */
-  res->path = MSTR_INIT;
-  if (!mstr_assign_cstr (&res->path, path))
-    reto (HTTPD_ERR_RESOURCE_IHIT_PATH, clean_data);
-
-  return 0;
-
-clean_data:
-  munmap (data, res->size);
-
-clean_fd:
-  close (fd);
-
-  return ret;
-}
-
-static void
 header_free (rbtree_node_t *n)
 {
   header_t *h = container_of (n, header_t, node);
@@ -470,9 +390,8 @@ header_insert (rbtree_t *headers, header_t *header)
 static header_t *
 header_get (rbtree_t *headers, const char *field)
 {
-  header_t temp
-      = { .field.heap = { .data = (char *)field, .len = strlen (field) } };
-  rbtree_node_t *node = rbtree_find (headers, &temp.node, header_comp);
+  header_t target = { .field = MSTR_VIEW (field, strlen (field)) };
+  rbtree_node_t *node = rbtree_find (headers, &target.node, header_comp);
   return node ? container_of (node, header_t, node) : NULL;
 }
 
@@ -501,34 +420,29 @@ clean_arg:
 static void
 serve_file (context_t *ctx)
 {
-  resource_t res;
-  int init = resource_init (&res, ctx);
+  resource_t *res;
 
-  if (init != 0)
+  if (!(res = resource_get (ctx)))
     {
-      if (init == HTTPD_ERR_RESOURCE_IHIT_404)
-        serve_not_found (ctx);
+      serve_not_found (ctx);
       return;
     }
 
-  static __thread char hdr[MAX_RESHEAD_LEN];
-
   /* init response header */
-  int size = reshdr_init (hdr, sizeof (hdr), 200, "OK", &res);
+  static __thread char head[MAX_RESHEAD_LEN];
+
+  int size = reshdr_init (head, sizeof (head), 200, "OK", res);
 
   if (size <= 0)
-    goto clean_res;
+    return;
 
   /* send header */
-  if (!send_data (ctx, hdr, size))
-    goto clean_res;
+  if (!send_data (ctx, head, size))
+    return;
 
   /* send data */
-  if (!send_data (ctx, res.data, res.size))
-    goto clean_res;
-
-clean_res:
-  resource_free (&res);
+  if (!send_data (ctx, res->data, res->size))
+    return;
 }
 
 static void
@@ -542,6 +456,42 @@ serve_not_found (context_t *ctx)
   send_data (ctx, res, 99);
 }
 
+static resource_t *
+resource_get (context_t *ctx)
+{
+  /* build path */
+  server_t *serv = ctx->clnt->serv;
+  mstr_t *root = &serv->root, *uri = &ctx->req.uri;
+  size_t root_len = mstr_len (root), uri_len = mstr_len (uri);
+
+  size_t path_len = root_len + uri_len;
+  char *path = alloca (path_len + 16);
+  struct stat info;
+
+  path[path_len] = '\0';
+  memcpy (path, mstr_data (root), root_len);
+  memcpy (path + root_len, mstr_data (uri), uri_len);
+
+  if (stat (path, &info) != 0)
+    return NULL;
+
+  if (S_ISDIR (info.st_mode))
+    for (int i = 0; i < indexs_size; i++)
+      {
+        strcpy (path + path_len, indexs[i]);
+        if (stat (path, &info) == 0 && S_ISREG (info.st_mode))
+          break;
+        if (i == indexs_size - 1)
+          return NULL;
+      }
+
+  /* query size */
+  size_t size = info.st_size;
+  respool_t *pool = &serv->rpool;
+  resource_t *res = respool_get (pool, path);
+  return res ? res : respool_add (pool, path, size);
+}
+
 static inline bool
 send_data (context_t *ctx, const void *data, size_t size)
 {
@@ -553,17 +503,16 @@ reshdr_init (char *dst, int max, int code, const char *msg, resource_t *res)
 {
   const char *mime;
   size_t size = res->size;
-  request_t *req = &res->ctx->req;
 
   if (!(mime = mime_of (mstr_data (&res->path))))
     mime = "text/plain";
 
-  static const char *format = "HTTP/1.%d %d %s"
+  static const char *format = "HTTP/1.1 %d %s"
                               "\r\n"
                               "Server: httpd\r\n"
                               "Content-Type: %s\r\n"
                               "Content-Length: %lu\r\n"
                               "\r\n";
 
-  return snprintf (dst, max, format, req->proto, code, msg, mime, size);
+  return snprintf (dst, max, format, code, msg, mime, size);
 }
