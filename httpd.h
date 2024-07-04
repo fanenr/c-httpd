@@ -3,6 +3,7 @@
 
 #include "arena.h"
 #include "mstr.h"
+#include "respool.h"
 #include "threadpool.h"
 
 #include <netinet/in.h>
@@ -15,9 +16,10 @@ enum
   HTTPD_OK,
 
   HTTPD_ERR_SERVER_INIT_ROOT,
-  HTTPD_ERR_SERVER_INIT_POOL,
   HTTPD_ERR_SERVER_INIT_SOCK,
   HTTPD_ERR_SERVER_INIT_BIND,
+  HTTPD_ERR_SERVER_INIT_RPOOL,
+  HTTPD_ERR_SERVER_INIT_TPOOL,
   HTTPD_ERR_SERVER_INIT_LISTEN,
   HTTPD_ERR_SERVER_INIT_REUSEADDR,
 
@@ -71,6 +73,7 @@ struct server_t
   mstr_t root;
   uint16_t port;
   arena_t mpool;
+  respool_t rpool;
   sockaddr4_t addr;
   threadpool_t tpool;
 };
