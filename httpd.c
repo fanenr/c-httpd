@@ -10,6 +10,8 @@
 #include <string.h>
 
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -69,7 +71,6 @@ static int request_init (request_t *req, context_t *ctx);
 struct context_t
 {
   FILE *in;
-  FILE *out;
   request_t req;
   client_t *clnt;
 };
@@ -81,7 +82,8 @@ static int context_init (context_t *ctx, client_t *clnt);
 
 struct resource_t
 {
-  FILE *src;
+  int fd;
+  void *data;
   size_t size;
   mstr_t path;
   context_t *ctx;
@@ -246,15 +248,13 @@ request_init (request_t *req, context_t *ctx)
   len = end - pos;
 
   /* init method */
-  static const char *methods[] = {
-    "GET",    "PUT",     "HEAD",    "POST",      "TRACE",
-    "DELETE", "OPTIONS", "CONNECT", "EXTENSION",
-  };
+  req->method = HTTPD_METHOD_EXTENSION;
 
-  const int msize = sizeof (methods) / sizeof (*methods);
+  static const char *methods[] = { "GET",   "PUT",    "HEAD",    "POST",
+                                   "TRACE", "DELETE", "OPTIONS", "CONNECT" };
 
-  for (int i = 0; i < msize; i++)
-    if (memcmp (pos, methods[i], len) == 0 || i == msize - 1)
+  for (int i = 0; i < HTTPD_METHOD_EXTENSION; i++)
+    if (strncmp (pos, methods[i], len) == 0)
       {
         req->method = i;
         break;
@@ -353,7 +353,6 @@ static void
 context_free (context_t *ctx)
 {
   fclose (ctx->in);
-  fclose (ctx->out);
   request_free (&ctx->req);
 }
 
@@ -364,45 +363,40 @@ context_init (context_t *ctx, client_t *clnt)
 
   /* init in */
   if (!(ctx->in = fdopen (clnt->sock, "r")))
-    reto (HTTPD_ERR_CONTEXT_INIT_IN, ret);
-
-  /* init out */
-  if (!(ctx->out = fdopen (dup (clnt->sock), "w")))
-    reto (HTTPD_ERR_CONTEXT_INIT_OUT, clean_in);
+    return HTTPD_ERR_CONTEXT_INIT_IN;
 
   /* init req */
   if (request_init (&ctx->req, ctx) != 0)
-    reto (HTTPD_ERR_CONTEXT_INIT_REQ, clean_out);
+    reto (HTTPD_ERR_CONTEXT_INIT_REQ, clean_in);
 
   /* init clnt */
   ctx->clnt = clnt;
 
   return 0;
 
-clean_out:
-  fclose (ctx->out);
-
 clean_in:
   fclose (ctx->in);
 
-ret:
   return ret;
 }
 
 static void
 resource_free (resource_t *res)
 {
-  fclose (res->src);
+  munmap (res->data, res->size);
   mstr_free (&res->path);
+  close (res->fd);
 }
 
 static int
 resource_init (resource_t *res, context_t *ctx)
 {
+  int ret;
+
   /* init ctx */
   res->ctx = ctx;
 
-  /* init src */
+  /* build path */
   client_t *clnt = ctx->clnt;
   mstr_t *root = &clnt->serv->root, *uri = &ctx->req.uri;
   size_t root_len = mstr_len (root), uri_len = mstr_len (uri);
@@ -415,6 +409,7 @@ resource_init (resource_t *res, context_t *ctx)
   memcpy (path, mstr_data (root), root_len);
   memcpy (path + root_len, mstr_data (uri), uri_len);
 
+  /* query info */
   if (stat (path, &info) != 0)
     return HTTPD_ERR_RESOURCE_IHIT_404;
 
@@ -428,18 +423,33 @@ resource_init (resource_t *res, context_t *ctx)
           return HTTPD_ERR_RESOURCE_IHIT_404;
       }
 
-  if (!(res->src = fopen (path, "r")))
-    return HTTPD_ERR_RESOURCE_IHIT_SRC;
-
   /* init size */
   res->size = info.st_size;
+
+  /* init fd */
+  int fd = open (path, O_RDONLY);
+  if ((res->fd = fd) == -1)
+    return HTTPD_ERR_RESOURCE_IHIT_FD;
+
+  /* init data */
+  void *data = mmap (NULL, res->size, PROT_READ, MAP_PRIVATE, fd, 0);
+  if ((res->data = data) == MAP_FAILED)
+    reto (HTTPD_ERR_RESOURCE_IHIT_DATA, clean_fd);
 
   /* init path */
   res->path = MSTR_INIT;
   if (!mstr_assign_cstr (&res->path, path))
-    return HTTPD_ERR_RESOURCE_IHIT_PATH;
+    reto (HTTPD_ERR_RESOURCE_IHIT_PATH, clean_data);
 
   return 0;
+
+clean_data:
+  munmap (data, res->size);
+
+clean_fd:
+  close (fd);
+
+  return ret;
 }
 
 static void
@@ -501,23 +511,21 @@ serve_file (context_t *ctx)
       return;
     }
 
-  const size_t buff_size = MAX_RESHEAD_LEN;
-  static __thread char buff[MAX_RESHEAD_LEN];
+  static __thread char hdr[MAX_RESHEAD_LEN];
 
   /* init response header */
-  int size = reshdr_init (buff, buff_size, 200, "OK", &res);
+  int size = reshdr_init (hdr, sizeof (hdr), 200, "OK", &res);
 
   if (size <= 0)
     goto clean_res;
 
   /* send header */
-  if (!send_data (ctx, buff, size))
+  if (!send_data (ctx, hdr, size))
     goto clean_res;
 
   /* send data */
-  for (; (size = fread (buff, 1, buff_size, res.src));)
-    if (!send_data (ctx, buff, size))
-      goto clean_res;
+  if (!send_data (ctx, res.data, res.size))
+    goto clean_res;
 
 clean_res:
   resource_free (&res);
@@ -537,7 +545,7 @@ serve_not_found (context_t *ctx)
 static inline bool
 send_data (context_t *ctx, const void *data, size_t size)
 {
-  return size ? fwrite (data, 1, size, ctx->out) : true;
+  return size ? send (ctx->clnt->sock, data, size, 0) != -1 : true;
 }
 
 static int
