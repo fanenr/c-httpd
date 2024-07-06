@@ -5,6 +5,8 @@
 
 #define THREADPOOL_THREADS 4
 
+#define attr_nonnull(...) __attribute__ ((nonnull (__VA_ARGS__)))
+
 enum
 {
   THREADPOOL_STS_RUN,
@@ -48,14 +50,15 @@ struct threadpool_task_t
   threadpool_task_t *next;
 };
 
-extern void threadpool_free (threadpool_t *pool);
-extern void threadpool_wait (threadpool_t *pool);
+extern void threadpool_free (threadpool_t *pool) attr_nonnull (1);
+extern void threadpool_wait (threadpool_t *pool) attr_nonnull (1);
 
-extern void threadpool_run (threadpool_t *pool);
-extern void threadpool_stop (threadpool_t *pool);
-extern void threadpool_quit (threadpool_t *pool);
+extern void threadpool_run (threadpool_t *pool) attr_nonnull (1);
+extern void threadpool_stop (threadpool_t *pool) attr_nonnull (1);
+extern void threadpool_quit (threadpool_t *pool) attr_nonnull (1);
 
-extern int threadpool_init (threadpool_t *pool, size_t n);
-extern int threadpool_post (threadpool_t *pool, threadpool_func_t *f, void *a);
+extern int threadpool_init (threadpool_t *pool, size_t n) attr_nonnull (1);
+extern int threadpool_post (threadpool_t *pool, threadpool_func_t *f, void *a)
+    attr_nonnull (1, 2);
 
 #endif
