@@ -1,8 +1,9 @@
 #include "mstr.h"
 
 #include <ctype.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 
 #define set_len(str, new)                                                     \
   do                                                                          \
@@ -124,6 +125,46 @@ mstr_substr (mstr_t *save, const mstr_t *from, size_t start, size_t n)
   return mstr_assign_byte (save, pos, n);
 }
 
+mstr_t *
+mstr_format (mstr_t *str, const char *fmt, ...)
+{
+  va_list ap, copy;
+  va_start (ap, fmt);
+  va_copy (copy, ap);
+
+  mstr_t *ret = NULL;
+  mstr_t new = MSTR_INIT;
+  size_t cap = MSTR_SSO_CAP;
+  int need = vsnprintf (new.sso.data, cap, fmt, ap);
+
+  if (need < 0)
+    goto err;
+
+  if ((size_t)need >= cap)
+    {
+      cap = need + 1;
+      if (mstr_reserve (&new, cap) != &new)
+        goto err;
+      if (vsnprintf (new.heap.data, cap, fmt, copy) < 0)
+        goto err;
+    }
+
+  set_len (&new, need);
+  mstr_free (str);
+  *str = new;
+
+  ret = str;
+  goto ret;
+
+err:
+  mstr_free (&new);
+
+ret:
+  va_end (copy);
+  va_end (ap);
+  return ret;
+}
+
 void
 mstr_trim (mstr_t *str)
 {
@@ -141,6 +182,7 @@ mstr_trim (mstr_t *str)
     start++;
   for (; end >= start && isspace (*end);)
     end--;
+
   if (!(newlen = end - start + 1))
     return mstr_clear (str);
   if (newlen == len)
@@ -148,72 +190,6 @@ mstr_trim (mstr_t *str)
 
   if (memmove (data, start, newlen) == data)
     set_len (str, newlen);
-}
-
-void
-mstr_ltrim (mstr_t *str)
-{
-  size_t len;
-
-  if (!(len = mstr_len (str)))
-    return;
-
-  char *data = mstr_data (str);
-  char *end = data + len - 1;
-  char *start = data;
-  size_t newlen;
-
-  for (; start <= end && isspace (*start);)
-    start++;
-  if (!(newlen = end - start + 1))
-    return mstr_clear (str);
-  if (newlen == len)
-    return;
-
-  if (memmove (data, start, newlen) == data)
-    set_len (str, newlen);
-}
-
-void
-mstr_rtrim (mstr_t *str)
-{
-  size_t len;
-
-  if (!(len = mstr_len (str)))
-    return;
-
-  char *data = mstr_data (str);
-  char *end = data + len - 1;
-  char *start = data;
-  size_t newlen;
-
-  for (; end >= start && isspace (*end);)
-    end--;
-  if (!(newlen = end - start + 1))
-    return mstr_clear (str);
-  if (newlen == len)
-    return;
-
-  if (memmove (data, start, newlen) == data)
-    set_len (str, newlen);
-}
-
-bool
-mstr_start_with_char (const mstr_t *str, char ch)
-{
-  return mstr_start_with_byte (str, &ch, 1);
-}
-
-bool
-mstr_start_with_cstr (const mstr_t *str, const char *cstr)
-{
-  return mstr_start_with_byte (str, cstr, strlen (cstr));
-}
-
-bool
-mstr_start_with_mstr (const mstr_t *str, const mstr_t *other)
-{
-  return mstr_start_with_byte (str, mstr_data (other), mstr_len (other));
 }
 
 bool
@@ -226,24 +202,6 @@ mstr_start_with_byte (const mstr_t *str, const void *src, size_t n)
 }
 
 bool
-mstr_end_with_char (const mstr_t *str, char ch)
-{
-  return mstr_end_with_byte (str, &ch, 1);
-}
-
-bool
-mstr_end_with_cstr (const mstr_t *str, const char *cstr)
-{
-  return mstr_end_with_byte (str, cstr, strlen (cstr));
-}
-
-bool
-mstr_end_with_mstr (const mstr_t *str, const mstr_t *other)
-{
-  return mstr_end_with_byte (str, mstr_data (other), mstr_len (other));
-}
-
-bool
 mstr_end_with_byte (const mstr_t *str, const void *src, size_t n)
 {
   if (!n || n > mstr_len (str))
@@ -251,24 +209,6 @@ mstr_end_with_byte (const mstr_t *str, const void *src, size_t n)
 
   const char *pos = mstr_data (str) + mstr_len (str) - n;
   return memcmp (pos, src, n) == 0;
-}
-
-int
-mstr_cmp_char (const mstr_t *str, char ch)
-{
-  return mstr_cmp_byte (str, &ch, 1);
-}
-
-int
-mstr_cmp_cstr (const mstr_t *str, const char *cstr)
-{
-  return mstr_cmp_byte (str, cstr, strlen (cstr));
-}
-
-int
-mstr_cmp_mstr (const mstr_t *str, const mstr_t *other)
-{
-  return mstr_cmp_byte (str, mstr_data (other), mstr_len (other));
 }
 
 int
@@ -288,24 +228,6 @@ mstr_cmp_byte (const mstr_t *str, const void *src, size_t n)
 }
 
 int
-mstr_icmp_char (const mstr_t *str, char ch)
-{
-  return mstr_icmp_byte (str, &ch, 1);
-}
-
-int
-mstr_icmp_cstr (const mstr_t *str, const char *cstr)
-{
-  return mstr_icmp_byte (str, cstr, strlen (cstr));
-}
-
-int
-mstr_icmp_mstr (const mstr_t *str, const mstr_t *other)
-{
-  return mstr_icmp_byte (str, mstr_data (other), mstr_len (other));
-}
-
-int
 mstr_icmp_byte (const mstr_t *str, const void *src, size_t n)
 {
   size_t len = mstr_len (str);
@@ -319,24 +241,6 @@ mstr_icmp_byte (const mstr_t *str, const void *src, size_t n)
   if (ret != 0 || n == len)
     return ret;
   return n < len ? 1 : -1;
-}
-
-mstr_t *
-mstr_cat_char (mstr_t *str, char ch)
-{
-  return mstr_cat_byte (str, &ch, 1);
-}
-
-mstr_t *
-mstr_cat_cstr (mstr_t *str, const char *cstr)
-{
-  return mstr_cat_byte (str, cstr, strlen (cstr));
-}
-
-mstr_t *
-mstr_cat_mstr (mstr_t *str, const mstr_t *other)
-{
-  return mstr_cat_byte (str, mstr_data (other), mstr_len (other));
 }
 
 mstr_t *
@@ -357,24 +261,6 @@ mstr_cat_byte (mstr_t *str, const void *src, size_t n)
 
   set_len (str, len + n);
   return str;
-}
-
-mstr_t *
-mstr_insert_char (mstr_t *str, size_t pos, char ch)
-{
-  return mstr_insert_byte (str, pos, &ch, 1);
-}
-
-mstr_t *
-mstr_insert_cstr (mstr_t *str, size_t pos, const char *cstr)
-{
-  return mstr_insert_byte (str, pos, cstr, strlen (cstr));
-}
-
-mstr_t *
-mstr_insert_mstr (mstr_t *str, size_t pos, const mstr_t *other)
-{
-  return mstr_insert_byte (str, pos, mstr_data (other), mstr_len (other));
 }
 
 mstr_t *
@@ -409,24 +295,6 @@ mstr_insert_byte (mstr_t *str, size_t pos, const void *src, size_t n)
 
   set_len (str, len + n);
   return str;
-}
-
-mstr_t *
-mstr_assign_char (mstr_t *str, char ch)
-{
-  return mstr_assign_byte (str, &ch, 1);
-}
-
-mstr_t *
-mstr_assign_cstr (mstr_t *str, const char *cstr)
-{
-  return mstr_assign_byte (str, cstr, strlen (cstr));
-}
-
-mstr_t *
-mstr_assign_mstr (mstr_t *str, const mstr_t *other)
-{
-  return mstr_assign_byte (str, mstr_data (other), mstr_len (other));
 }
 
 mstr_t *
