@@ -142,9 +142,18 @@ clean_clnt:
 }
 
 int
-server_init (server_t *serv, uint16_t port, const char *root, size_t threads,
-             int backlog, int flags)
+server_init (server_t *serv, const server_config_t *conf)
 {
+#define conf_get(mem, def) (conf ? (conf->mem ?: def) : def)
+
+  int flags = conf_get (flags, FLAGS);
+  uint16_t port = conf_get (port, PORT);
+  const char *root = conf_get (root, ROOT);
+  int backlog = conf_get (backlog, BACKLOG);
+  size_t threads = conf_get (threads, THREADS);
+
+#undef conf_get
+
   int ret;
 
   /* init port */
