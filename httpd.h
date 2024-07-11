@@ -66,6 +66,7 @@ typedef struct sockaddr_in sockaddr4_t;
 typedef struct sockaddr_in6 sockaddr6_t;
 
 typedef struct server_t server_t;
+typedef struct server_config_t server_config_t;
 
 struct server_t
 {
@@ -78,11 +79,19 @@ struct server_t
   threadpool_t tpool;
 };
 
+struct server_config_t
+{
+  int flags;
+  int backlog;
+  uint16_t port;
+  size_t threads;
+  const char *root;
+};
+
 extern void server_free (server_t *serv);
 
 extern void server_poll (server_t *serv);
 
-extern int server_init (server_t *serv, uint16_t port, const char *root,
-                        size_t threads, int backlog, int flags);
+extern int server_init (server_t *serv, const server_config_t *conf);
 
 #endif

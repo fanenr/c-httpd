@@ -2,12 +2,6 @@
 #include <signal.h>
 #include <stdlib.h>
 
-#define PORT 3354
-#define THREADS 16
-#define BACKLOG 48
-#define ROOT "./blog"
-#define FLAGS SERVER_REUSEADDR
-
 int
 main (void)
 {
@@ -15,11 +9,16 @@ main (void)
   act.sa_handler = SIG_IGN;
 
   if (sigaction (SIGPIPE, &act, NULL) != 0)
-    return 1;
+    abort ();
 
   server_t serv;
 
-  if (server_init (&serv, PORT, ROOT, THREADS, BACKLOG, FLAGS) != 0)
+  server_config_t conf = {
+    .port = 3354,
+    .root = "./blog",
+  };
+
+  if (server_init (&serv, &conf) != 0)
     abort ();
 
   for (;;)
