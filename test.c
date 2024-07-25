@@ -14,8 +14,8 @@ main (void)
   server_t serv;
 
   server_config_t conf = {
-    .port = 3354,
     .root = "./blog",
+    .port = 3354,
   };
 
   if (server_init (&serv, &conf) != 0)

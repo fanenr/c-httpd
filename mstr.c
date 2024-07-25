@@ -34,36 +34,35 @@ mstr_clear (mstr_t *str)
 }
 
 mstr_t *
-mstr_reserve (mstr_t *str, size_t cap)
+mstr_reserve (mstr_t *str, size_t n)
 {
-  char *newdata;
-  size_t newcap;
+  char *data;
+  size_t cap;
 
-  if ((newcap = mstr_cap (str)) >= cap)
+  if ((cap = mstr_cap (str)) >= n)
     return str;
 
-  /* compute capacity */
-  while (newcap < cap)
-    newcap *= MSTR_EXPAN_RATIO;
+  do
+    cap <<= 1;
+  while (cap < n);
 
-  if (newcap % 2)
-    newcap++;
+  cap++;
 
   if (mstr_is_heap (str))
     {
-      if (!(newdata = realloc (str->heap.data, newcap)))
+      if (!(data = realloc (str->heap.data, cap)))
         return NULL;
     }
   else
     {
-      if (!(newdata = malloc (newcap)))
+      if (!(data = malloc (cap)))
         return NULL;
 
       /* copy to heap */
       size_t len = str->sso.len;
-      if (memcpy (newdata, str->sso.data, len + 1) != newdata)
+      if (memcpy (data, str->sso.data, len + 1) != data)
         { /* copy failed */
-          free (newdata);
+          free (data);
           return NULL;
         }
 
@@ -71,8 +70,8 @@ mstr_reserve (mstr_t *str, size_t cap)
       str->heap.len = len;
     }
 
-  str->heap.data = newdata;
-  str->heap.cap = newcap;
+  str->heap.data = data;
+  str->heap.cap = cap;
   return str;
 }
 
