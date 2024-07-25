@@ -5,10 +5,9 @@
 #include <stddef.h>
 #include <string.h>
 
-#define MSTR_FLG_SSO 1
-#define MSTR_FLG_HEAP 0
+#define MSTR_FLG_SSO 0
+#define MSTR_FLG_HEAP 1
 
-#define MSTR_EXPAN_RATIO 2
 #define MSTR_SSO_CAP (sizeof (mstr_heap_t) - 1)
 
 #define attr_nonnull(...) __attribute__ ((nonnull (__VA_ARGS__)))
@@ -38,13 +37,10 @@ union mstr_t
 };
 
 #define MSTR_INIT                                                             \
-  (mstr_t) { .sso.flg = MSTR_FLG_SSO }
+  (mstr_t) {}
 
 #define MSTR_VIEW(src, size)                                                  \
-  (mstr_t)                                                                    \
-  {                                                                           \
-    .heap = {.data = (char *)(src), .len = (size) }                           \
-  }
+  (mstr_t) { .heap = { .data = (char *)(src), .len = (size), .cap = 1 }, }
 
 #define mstr_is_sso(str) ((str)->sso.flg == MSTR_FLG_SSO)
 #define mstr_is_heap(str) ((str)->sso.flg == MSTR_FLG_HEAP)
