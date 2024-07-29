@@ -23,6 +23,7 @@ struct resource_t
   size_t size;
   mstr_t path;
   rbtree_node_t node;
+  struct timespec mtime;
 };
 
 extern int respool_init (respool_t *pool);
@@ -33,7 +34,6 @@ extern void respool_del (respool_t *pool, const char *path);
 
 extern resource_t *respool_get (respool_t *pool, const char *path);
 
-extern resource_t *respool_add (respool_t *pool, const char *path,
-                                size_t size);
+extern resource_t *respool_add (respool_t *pool, const char *path);
 
 #endif

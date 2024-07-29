@@ -494,11 +494,7 @@ resource_get (context_t *ctx)
           return NULL;
       }
 
-  /* query size */
-  size_t size = info.st_size;
-  respool_t *pool = &serv->rpool;
-  resource_t *res = respool_get (pool, path);
-  return res ? res : respool_add (pool, path, size);
+  return respool_get (&serv->rpool, path);
 }
 
 static inline bool
