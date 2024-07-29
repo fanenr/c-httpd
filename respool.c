@@ -1,9 +1,11 @@
 #include "respool.h"
 
-#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 static void node_free (rbtree_node_t *n);
@@ -38,19 +40,24 @@ respool_del (respool_t *pool, const char *path)
 }
 
 resource_t *
-respool_add (respool_t *pool, const char *path, size_t size)
+respool_add (respool_t *pool, const char *path)
 {
+  struct stat info;
+  if (stat (path, &info) != 0)
+    return NULL;
+
   resource_t *res;
   if (!(res = malloc (sizeof (resource_t))))
     return NULL;
 
-  if (!(res->size = size))
-    goto clean_new;
+  res->size = info.st_size;
+  res->mtime = info.st_mtim;
 
   int fd = open (path, O_RDONLY);
   if ((res->fd = fd) == -1)
     goto clean_new;
 
+  size_t size = res->size;
   void *data = mmap (NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
   if ((res->data = data) == MAP_FAILED)
     goto clean_fd;
@@ -59,16 +66,13 @@ respool_add (respool_t *pool, const char *path, size_t size)
   if (!mstr_assign_cstr (&res->path, path))
     goto clean_data;
 
-  bool ok;
   pthread_rwlock_wrlock (&pool->lock);
-  ok = rbtree_insert (&pool->tree, &res->node, node_comp);
+  bool ok = rbtree_insert (&pool->tree, &res->node, node_comp);
   pthread_rwlock_unlock (&pool->lock);
 
-  if (!ok)
-    goto clean_path;
-  return res;
+  if (ok)
+    return res;
 
-clean_path:
   mstr_free (&res->path);
 
 clean_data:
@@ -79,21 +83,62 @@ clean_fd:
 
 clean_new:
   free (res);
+  return NULL;
+}
 
+#define is_timespec_equal(a, b)                                               \
+  ((a).tv_sec == (b).tv_sec && (a).tv_nsec == (b).tv_nsec)
+
+static inline resource_t *
+resource_update (resource_t *old, const char *path, struct stat info)
+{
+  int nfd = open (path, O_RDONLY);
+  if (nfd == -1)
+    return NULL;
+
+  size_t nsize = info.st_size;
+  void *ndata = mmap (NULL, nsize, PROT_READ, MAP_PRIVATE, nfd, 0);
+  if (ndata == MAP_FAILED)
+    goto clean_fd;
+
+  munmap (old->data, old->size);
+  close (old->fd);
+
+  old->mtime = info.st_mtim;
+  old->data = ndata;
+  old->size = nsize;
+  old->fd = nfd;
+
+  return old;
+
+clean_fd:
+  close (nfd);
   return NULL;
 }
 
 resource_t *
 respool_get (respool_t *pool, const char *path)
 {
-  rbtree_node_t *node;
   resource_t target = { .path = MSTR_VIEW (path, strlen (path)) };
 
   pthread_rwlock_rdlock (&pool->lock);
-  node = rbtree_find (&pool->tree, &target.node, node_comp);
+  rbtree_node_t *node = rbtree_find (&pool->tree, &target.node, node_comp);
   pthread_rwlock_unlock (&pool->lock);
 
-  return node ? container_of (node, resource_t, node) : NULL;
+  if (node)
+    {
+      struct stat info;
+      if (stat (path, &info) != 0)
+        return NULL;
+
+      resource_t *res = container_of (node, resource_t, node);
+      if (is_timespec_equal (res->mtime, info.st_mtim))
+        return res;
+
+      return resource_update (res, path, info);
+    }
+
+  return respool_add (pool, path);
 }
 
 static inline void
