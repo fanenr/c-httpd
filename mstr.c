@@ -165,9 +165,11 @@ ret:
 }
 
 void
-mstr_trim (mstr_t *str)
+mstr_trim (mstr_t *str, const char *s)
 {
+  size_t sn;
   size_t len;
+  size_t newlen;
 
   if (!(len = mstr_len (str)))
     return;
@@ -175,12 +177,21 @@ mstr_trim (mstr_t *str)
   char *data = mstr_data (str);
   char *end = data + len - 1;
   char *start = data;
-  size_t newlen;
 
-  for (; start <= end && isspace (*start);)
-    start++;
-  for (; end >= start && isspace (*end);)
-    end--;
+  if (s && (sn = strlen (s)))
+    {
+      for (; start <= end && memchr (s, *start, sn);)
+        start++;
+      for (; end >= start && memchr (s, *end, sn);)
+        end--;
+    }
+  else
+    {
+      for (; start <= end && isspace (*start);)
+        start++;
+      for (; end >= start && isspace (*end);)
+        end--;
+    }
 
   if (!(newlen = end - start + 1))
     return mstr_clear (str);
@@ -194,7 +205,10 @@ mstr_trim (mstr_t *str)
 bool
 mstr_start_with_byte (const mstr_t *str, const void *src, size_t n)
 {
-  if (!n || n > mstr_len (str))
+  if (!n)
+    return true;
+
+  if (n > mstr_len (str))
     return false;
 
   return memcmp (mstr_data (str), src, n) == 0;
@@ -203,11 +217,14 @@ mstr_start_with_byte (const mstr_t *str, const void *src, size_t n)
 bool
 mstr_end_with_byte (const mstr_t *str, const void *src, size_t n)
 {
-  if (!n || n > mstr_len (str))
+  if (!n)
+    return true;
+
+  if (n > mstr_len (str))
     return false;
 
-  const char *pos = mstr_data (str) + mstr_len (str) - n;
-  return memcmp (pos, src, n) == 0;
+  const char *s = mstr_data (str) + mstr_len (str) - n;
+  return memcmp (s, src, n) == 0;
 }
 
 int
@@ -215,15 +232,11 @@ mstr_cmp_byte (const mstr_t *str, const void *src, size_t n)
 {
   size_t len = mstr_len (str);
 
-  if (!n || !len)
-    return 0;
-
+  int diff = len - n;
   const char *data = mstr_data (str);
-  int ret = memcmp (data, src, n > len ? len : n);
+  int ret = memcmp (data, src, len < n ? len : n);
 
-  if (ret != 0 || n == len)
-    return ret;
-  return n < len ? 1 : -1;
+  return ret ? ret : diff;
 }
 
 int
@@ -231,15 +244,11 @@ mstr_icmp_byte (const mstr_t *str, const void *src, size_t n)
 {
   size_t len = mstr_len (str);
 
-  if (!n || !len)
-    return 0;
-
+  int diff = len - n;
   const char *data = mstr_data (str);
-  int ret = strncasecmp (data, src, n > len ? len : n);
+  int ret = strncasecmp (data, src, len < n ? len : n);
 
-  if (ret != 0 || n == len)
-    return ret;
-  return n < len ? 1 : -1;
+  return ret ? ret : diff;
 }
 
 mstr_t *

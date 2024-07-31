@@ -80,7 +80,7 @@ extern mstr_t *mstr_format (mstr_t *str, const char *fmt, ...)
 
 /* trim */
 
-extern void mstr_trim (mstr_t *str) attr_nonnull (1);
+extern void mstr_trim (mstr_t *str, const char *s) attr_nonnull (1);
 
 /* is start with */
 

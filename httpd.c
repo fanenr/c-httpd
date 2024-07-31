@@ -288,7 +288,7 @@ request_init (request_t *req, context_t *ctx)
   /* init headers */
   req->headers = RBTREE_INIT;
 
-  for (;;)
+  for (header_t *hdr;;)
     {
       if (!fgets (line, MAX_REQLINE_LEN, ctx->in))
         reto (HTTPD_ERR_REQUEST_INIT_LINE, clean_uri);
@@ -304,40 +304,34 @@ request_init (request_t *req, context_t *ctx)
       if (!(sep = strchr (pos, ':')) || !(end = strchr (sep, '\r')))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
 
-      header_t *header;
-      ptrdiff_t fld_len = sep - pos;
-      char *val_st = sep + 1, *val_ed = end - 1;
-
       /* init header */
-      if (!(header = malloc (sizeof (header_t))))
+      if (!(hdr = malloc (sizeof (header_t))))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
-      header->field = header->value = MSTR_INIT;
 
-      if (fld_len <= 0 || !mstr_assign_byte (&header->field, pos, fld_len))
+      ptrdiff_t field_len = sep - pos;
+      hdr->field = hdr->value = MSTR_INIT;
+
+      if (field_len <= 0 || !mstr_assign_byte (&hdr->field, pos, field_len))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header);
 
-      for (; *val_st == ' ' || *val_st == '\t';)
-        val_st++;
-      for (; *val_ed == ' ' || *val_ed == '\t';)
-        val_ed--;
-
-      ptrdiff_t val_len = val_ed - val_st + 1;
-      if (val_len < 0 || !mstr_assign_byte (&header->value, val_st, val_len))
+      if (!mstr_assign_byte (&hdr->value, sep + 1, end - sep - 1))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_field);
 
-      if (!header_insert (&req->headers, header))
+      if (!header_insert (&req->headers, hdr))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_value);
+
+      mstr_trim (&hdr->value, " \t");
 
       continue;
 
     clean_value:
-      mstr_free (&header->value);
+      mstr_free (&hdr->value);
 
     clean_field:
-      mstr_free (&header->field);
+      mstr_free (&hdr->field);
 
     clean_header:
-      free (header);
+      free (hdr);
       goto clean_hdrs;
     }
 
