@@ -55,7 +55,7 @@ respool_add (respool_t *pool, const char *path)
 
   int fd = open (path, O_RDONLY);
   if ((res->fd = fd) == -1)
-    goto clean_new;
+    goto clean_res;
 
   size_t size = res->size;
   void *data = mmap (NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
@@ -70,9 +70,11 @@ respool_add (respool_t *pool, const char *path)
   bool ok = rbtree_insert (&pool->tree, &res->node, node_comp);
   pthread_rwlock_unlock (&pool->lock);
 
-  if (ok)
-    return res;
+  if (!ok)
+    goto clean_path;
+  return res;
 
+clean_path:
   mstr_free (&res->path);
 
 clean_data:
@@ -81,16 +83,16 @@ clean_data:
 clean_fd:
   close (fd);
 
-clean_new:
+clean_res:
   free (res);
   return NULL;
 }
 
-#define is_timespec_equal(a, b)                                               \
+#define timespec_equal(a, b)                                                  \
   ((a).tv_sec == (b).tv_sec && (a).tv_nsec == (b).tv_nsec)
 
 static inline resource_t *
-resource_update (resource_t *old, const char *path, struct stat info)
+resource_update (resource_t *res, const char *path, struct stat info)
 {
   int nfd = open (path, O_RDONLY);
   if (nfd == -1)
@@ -101,15 +103,15 @@ resource_update (resource_t *old, const char *path, struct stat info)
   if (ndata == MAP_FAILED)
     goto clean_fd;
 
-  munmap (old->data, old->size);
-  close (old->fd);
+  munmap (res->data, res->size);
+  close (res->fd);
 
-  old->mtime = info.st_mtim;
-  old->data = ndata;
-  old->size = nsize;
-  old->fd = nfd;
+  res->mtime = info.st_mtim;
+  res->data = ndata;
+  res->size = nsize;
+  res->fd = nfd;
 
-  return old;
+  return res;
 
 clean_fd:
   close (nfd);
@@ -125,20 +127,18 @@ respool_get (respool_t *pool, const char *path)
   rbtree_node_t *node = rbtree_find (&pool->tree, &target.node, node_comp);
   pthread_rwlock_unlock (&pool->lock);
 
-  if (node)
-    {
-      struct stat info;
-      if (stat (path, &info) != 0)
-        return NULL;
+  if (!node)
+    return respool_add (pool, path);
 
-      resource_t *res = container_of (node, resource_t, node);
-      if (is_timespec_equal (res->mtime, info.st_mtim))
-        return res;
+  struct stat info;
+  if (stat (path, &info) != 0)
+    return NULL;
 
-      return resource_update (res, path, info);
-    }
+  resource_t *res = container_of (node, resource_t, node);
+  if (!timespec_equal (res->mtime, info.st_mtim))
+    res = resource_update (res, path, info);
 
-  return respool_add (pool, path);
+  return res;
 }
 
 static inline void
