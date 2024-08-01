@@ -312,7 +312,7 @@ request_init (request_t *req, context_t *ctx)
       hdr->field = hdr->value = MSTR_INIT;
 
       if (field_len <= 0 || !mstr_assign_byte (&hdr->field, pos, field_len))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_header);
+        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdr);
 
       if (!mstr_assign_byte (&hdr->value, sep + 1, end - sep - 1))
         reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_field);
@@ -330,9 +330,9 @@ request_init (request_t *req, context_t *ctx)
     clean_field:
       mstr_free (&hdr->field);
 
-    clean_header:
+    clean_hdr:
       free (hdr);
-      goto clean_hdrs;
+      break;
     }
 
 clean_hdrs:
