@@ -11,7 +11,7 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <sys/mman.h>
+#include <sys/sendfile.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -98,8 +98,10 @@ static void serve_file (context_t *ctx);
 static void serve_not_found (context_t *ctx);
 
 static resource_t *resource_get (context_t *ctx);
+static bool send_file (context_t *ctx, resource_t *res);
 static bool send_data (context_t *ctx, const void *data, size_t n);
-static int reshdr_init (char *dst, int max, int code, const char *msg,
+
+static int header_init (char *dst, int max, int code, const char *msg,
                         resource_t *res);
 
 void
@@ -371,7 +373,6 @@ context_init (context_t *ctx, client_t *clnt)
 
 clean_in:
   fclose (ctx->in);
-
   return ret;
 }
 
@@ -426,26 +427,21 @@ serve_file (context_t *ctx)
   resource_t *res;
 
   if (!(res = resource_get (ctx)))
-    {
-      serve_not_found (ctx);
-      return;
-    }
+    return serve_not_found (ctx);
 
   /* init response header */
-  static __thread char head[MAX_RESHEAD_LEN];
-
-  int size = reshdr_init (head, sizeof (head), 200, "OK", res);
+  static __thread char header[MAX_RESHEAD_LEN];
+  int size = header_init (header, sizeof (header), 200, "OK", res);
 
   if (size <= 0)
     return;
 
   /* send header */
-  if (!send_data (ctx, head, size))
+  if (!send_data (ctx, header, size))
     return;
 
-  /* send data */
-  if (!send_data (ctx, res->data, res->size))
-    return;
+  /* send file */
+  send_file (ctx, res);
 }
 
 static void
@@ -492,13 +488,22 @@ resource_get (context_t *ctx)
 }
 
 static inline bool
+send_file (context_t *ctx, resource_t *res)
+{
+  off_t off = 0;
+  size_t size = res->size;
+  int out = ctx->clnt->sock, in = res->fd;
+  return size ? sendfile (out, in, &off, size) != -1 : true;
+}
+
+static inline bool
 send_data (context_t *ctx, const void *data, size_t size)
 {
   return size ? send (ctx->clnt->sock, data, size, 0) != -1 : true;
 }
 
 static int
-reshdr_init (char *dst, int max, int code, const char *msg, resource_t *res)
+header_init (char *dst, int max, int code, const char *msg, resource_t *res)
 {
   const char *mime;
   size_t size = res->size;

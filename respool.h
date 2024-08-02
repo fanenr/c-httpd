@@ -19,7 +19,6 @@ struct respool_t
 struct resource_t
 {
   int fd;
-  void *data;
   size_t size;
   mstr_t path;
   rbtree_node_t node;

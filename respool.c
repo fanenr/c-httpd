@@ -4,7 +4,6 @@
 #include <string.h>
 
 #include <fcntl.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -57,14 +56,9 @@ respool_add (respool_t *pool, const char *path)
   if ((res->fd = fd) == -1)
     goto clean_res;
 
-  size_t size = res->size;
-  void *data = mmap (NULL, size, PROT_READ, MAP_PRIVATE, fd, 0);
-  if ((res->data = data) == MAP_FAILED)
-    goto clean_fd;
-
   res->path = MSTR_INIT;
   if (!mstr_assign_cstr (&res->path, path))
-    goto clean_data;
+    goto clean_fd;
 
   pthread_rwlock_wrlock (&pool->lock);
   bool ok = rbtree_insert (&pool->tree, &res->node, node_comp);
@@ -76,9 +70,6 @@ respool_add (respool_t *pool, const char *path)
 
 clean_path:
   mstr_free (&res->path);
-
-clean_data:
-  munmap (data, size);
 
 clean_fd:
   close (fd);
@@ -98,24 +89,13 @@ resource_update (resource_t *res, const char *path, struct stat info)
   if (nfd == -1)
     return NULL;
 
-  size_t nsize = info.st_size;
-  void *ndata = mmap (NULL, nsize, PROT_READ, MAP_PRIVATE, nfd, 0);
-  if (ndata == MAP_FAILED)
-    goto clean_fd;
-
-  munmap (res->data, res->size);
   close (res->fd);
 
   res->mtime = info.st_mtim;
-  res->data = ndata;
-  res->size = nsize;
+  res->size = info.st_size;
   res->fd = nfd;
 
   return res;
-
-clean_fd:
-  close (nfd);
-  return NULL;
 }
 
 resource_t *
@@ -145,7 +125,6 @@ static inline void
 node_free (rbtree_node_t *n)
 {
   resource_t *rn = container_of (n, resource_t, node);
-  munmap (rn->data, rn->size);
   mstr_free (&rn->path);
   close (rn->fd);
   free (rn);
