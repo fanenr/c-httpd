@@ -3,6 +3,9 @@ MODE = debug
 include config.mk
 export CFLAGS LDFLAGS
 
+CFLAGS += -pthread
+LDFLAGS += -pthread
+
 .PHONY: all
 all: test
 

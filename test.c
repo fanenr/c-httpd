@@ -1,21 +1,24 @@
 #include "httpd.h"
+#include "util.h"
+
 #include <signal.h>
-#include <stdlib.h>
 
 int
-main (void)
+main (int argc, char **args)
 {
+  if (argc < 2)
+    error ("Usage: %s <port> <dir>", args[0]);
+
   struct sigaction act;
   act.sa_handler = SIG_IGN;
-
   if (sigaction (SIGPIPE, &act, NULL) != 0)
     abort ();
 
   server_t serv;
 
   server_config_t conf = {
-    .root = "./blog",
-    .port = 3354,
+    .port = atoi (args[1]),
+    .root = args[2],
   };
 
   if (server_init (&serv, &conf) != 0)

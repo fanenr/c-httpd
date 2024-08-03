@@ -2,6 +2,7 @@
 #include "config.h"
 #include "mime.h"
 #include "rbtree.h"
+#include "util.h"
 
 #include <ctype.h>
 #include <stdbool.h>
@@ -11,30 +12,15 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
-#include <sys/sendfile.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
+#ifdef __linux__
+#include <sys/sendfile.h>
+#endif
+
 #define MAX_REQLINE_LEN 1024
 #define MAX_RESHEAD_LEN 4096
-
-#define error(fmt, ...)                                                       \
-  do                                                                          \
-    {                                                                         \
-      fprintf (stderr, "%s:%d (%s): ", __FUNCTION__, __LINE__, __FILE__);     \
-      fprintf (stderr, fmt, ##__VA_ARGS__);                                   \
-      fprintf (stderr, "\n");                                                 \
-      __builtin_trap ();                                                      \
-    }                                                                         \
-  while (0)
-
-#define reto(val, label)                                                      \
-  do                                                                          \
-    {                                                                         \
-      ret = val;                                                              \
-      goto label;                                                             \
-    }                                                                         \
-  while (0)
 
 typedef struct header_t header_t;
 typedef struct client_t client_t;
@@ -493,7 +479,11 @@ send_file (context_t *ctx, resource_t *res)
   off_t off = 0;
   size_t size = res->size;
   int out = ctx->clnt->sock, in = res->fd;
+#ifdef __linux__
   return size ? sendfile (out, in, &off, size) != -1 : true;
+#elif defined(__FreeBSD__)
+  return size ? sendfile (in, out, 0, size, NULL, &off, 0) == 0 : true;
+#endif
 }
 
 static inline bool
