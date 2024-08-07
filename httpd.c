@@ -479,9 +479,12 @@ send_file (context_t *ctx, resource_t *res)
   off_t off = 0;
   size_t size = res->size;
   int out = ctx->clnt->sock, in = res->fd;
+
 #ifdef __linux__
   return size ? sendfile (out, in, &off, size) != -1 : true;
-#elif defined(__FreeBSD__)
+#endif
+
+#ifdef __FreeBSD__
   return size ? sendfile (in, out, 0, size, NULL, &off, 0) == 0 : true;
 #endif
 }
