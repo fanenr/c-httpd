@@ -10,6 +10,7 @@
 #include <sys/socket.h>
 
 #define SERVER_REUSEADDR 1
+#define SERVER_NONBLOCK 2
 
 enum
 {

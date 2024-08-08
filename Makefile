@@ -3,7 +3,7 @@ MODE = debug
 include config.mk
 export CFLAGS LDFLAGS
 
-CFLAGS += -pthread
+CFLAGS  += -pthread -D_GNU_SOURCE
 LDFLAGS += -pthread
 
 .PHONY: all

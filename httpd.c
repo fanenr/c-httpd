@@ -113,7 +113,10 @@ server_poll (server_t *serv)
   clnt->serv = serv;
 
   /* init sock and addr */
-  if ((clnt->sock = accept (serv->sock, (void *)&clnt->addr, &len)) == -1)
+  int server = serv->sock;
+  void *addr = &clnt->addr;
+  int flags = SOCK_NONBLOCK;
+  if ((clnt->sock = accept4 (server, addr, &len, flags)) == -1)
     goto clean_clnt;
 
   /* post task */
@@ -171,7 +174,12 @@ server_init (server_t *serv, const server_config_t *conf)
     reto (HTTPD_ERR_SERVER_INIT_TPOOL, clean_rpool);
 
   /* init sock */
-  if ((serv->sock = socket (AF_INET, SOCK_STREAM, 0)) == -1)
+  int sock_type = SOCK_STREAM;
+
+  if (flags & SERVER_NONBLOCK)
+    sock_type |= SOCK_NONBLOCK;
+
+  if ((serv->sock = socket (AF_INET, sock_type, 0)) == -1)
     reto (HTTPD_ERR_SERVER_INIT_SOCK, clean_tpool);
 
   /* bind addr */
