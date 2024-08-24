@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 static void *work (void *arg);
+static void init_clean (threadpool_t *pool, size_t init);
 
 void
 threadpool_free (threadpool_t *pool)
@@ -85,6 +86,19 @@ threadpool_quit (threadpool_t *pool)
   pthread_cond_broadcast (&pool->cond);
 }
 
+static inline void
+init_clean (threadpool_t *pool, size_t init)
+{
+  pthread_t *threads = pool->threads;
+
+  pthread_mutex_destroy (&pool->mtx);
+  pthread_cond_destroy (&pool->cond);
+
+  for (size_t i = 0; i < init; i++)
+    pthread_cancel (threads[i]);
+  free (threads);
+}
+
 int
 threadpool_init (threadpool_t *pool, size_t n)
 {
@@ -102,13 +116,8 @@ threadpool_init (threadpool_t *pool, size_t n)
     return THREADPOOL_ERR_MALLOC;
 
   for (size_t init = 0; init < n; init++)
-    if (0 != pthread_create (&threads[init], NULL, work, pool))
-      {
-        for (size_t i = 0; i < init; i++)
-          pthread_cancel (threads[i]);
-        free (threads);
-        return THREADPOOL_ERR_CREATE;
-      }
+    if (pthread_create (&threads[init], NULL, work, pool))
+      return (init_clean (pool, init), THREADPOOL_ERR_CREATE);
 
   pool->threads = threads;
   pool->size = n;
