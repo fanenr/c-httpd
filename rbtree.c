@@ -52,7 +52,7 @@ rotate_right (rbtree_t *tree, rbtree_node_t *node)
 
 void
 rbtree_link (rbtree_t *tree, rbtree_node_t **inpos, rbtree_node_t *parent,
-             rbtree_node_t *node)
+	     rbtree_node_t *node)
 {
   node->left = node->right = NULL;
   node->color = RBTREE_RED;
@@ -62,7 +62,7 @@ rbtree_link (rbtree_t *tree, rbtree_node_t **inpos, rbtree_node_t *parent,
   for (rbtree_node_t *curr = node; curr;)
     {
       if (IS_BLACK (parent))
-        break;
+	break;
 
       rbtree_node_t *gprnt = parent->parent;
       int curr_left = (curr == parent->left);
@@ -70,26 +70,26 @@ rbtree_link (rbtree_t *tree, rbtree_node_t **inpos, rbtree_node_t *parent,
       rbtree_node_t *uncle = prnt_left ? gprnt->right : gprnt->left;
 
       if (IS_RED (uncle))
-        {
-          gprnt->color = RBTREE_RED;
-          parent->color = uncle->color = RBTREE_BLACK;
-          parent = gprnt->parent;
-          curr = gprnt;
-          continue;
-        }
+	{
+	  gprnt->color = RBTREE_RED;
+	  parent->color = uncle->color = RBTREE_BLACK;
+	  parent = gprnt->parent;
+	  curr = gprnt;
+	  continue;
+	}
 
       if (prnt_left)
-        {
-          if (!curr_left)
-            rotate_left (tree, parent);
-          rotate_right (tree, gprnt);
-        }
+	{
+	  if (!curr_left)
+	    rotate_left (tree, parent);
+	  rotate_right (tree, gprnt);
+	}
       else
-        {
-          if (curr_left)
-            rotate_right (tree, parent);
-          rotate_left (tree, gprnt);
-        }
+	{
+	  if (curr_left)
+	    rotate_right (tree, parent);
+	  rotate_left (tree, gprnt);
+	}
 
       gprnt->parent->color = RBTREE_BLACK;
       gprnt->color = RBTREE_RED;
@@ -111,13 +111,13 @@ rbtree_erase (rbtree_t *tree, rbtree_node_t *node)
   rbtree_node_t *child = left ? left : right;
 
   rmpos = parent ? (node == parent->left) ? &parent->left : &parent->right
-                 : &tree->root;
+		 : &tree->root;
 
   if (left && right)
     {
       rbtree_node_t *next = right;
       for (rbtree_node_t *temp; (temp = next->left);)
-        next = temp;
+	next = temp;
 
       color = next->color;
       child = next->right;
@@ -130,12 +130,12 @@ rbtree_erase (rbtree_t *tree, rbtree_node_t *node)
       *rmpos = next;
 
       if (next == right)
-        {
-          parent = next;
-          rmpos = &next->right;
-        }
+	{
+	  parent = next;
+	  rmpos = &next->right;
+	}
       else
-        rmpos = &parent->left;
+	rmpos = &parent->left;
     }
 
   *rmpos = child;
@@ -157,57 +157,57 @@ rbtree_erase (rbtree_t *tree, rbtree_node_t *node)
       rbtree_node_t *bro = curr_left ? parent->right : parent->left;
 
       if (IS_RED (bro))
-        {
-          parent->color = RBTREE_RED;
-          bro->color = RBTREE_BLACK;
-          if (curr_left)
-            {
-              rotate_left (tree, parent);
-              bro = parent->right;
-            }
-          else
-            {
-              rotate_right (tree, parent);
-              bro = parent->left;
-            }
-        }
+	{
+	  parent->color = RBTREE_RED;
+	  bro->color = RBTREE_BLACK;
+	  if (curr_left)
+	    {
+	      rotate_left (tree, parent);
+	      bro = parent->right;
+	    }
+	  else
+	    {
+	      rotate_right (tree, parent);
+	      bro = parent->left;
+	    }
+	}
 
       if (IS_BLACK (bro->left) && IS_BLACK (bro->right))
-        {
-          bro->color = RBTREE_RED;
-          if (IS_RED (parent))
-            {
-              parent->color = RBTREE_BLACK;
-              break;
-            }
-          curr = parent;
-          continue;
-        }
+	{
+	  bro->color = RBTREE_RED;
+	  if (IS_RED (parent))
+	    {
+	      parent->color = RBTREE_BLACK;
+	      break;
+	    }
+	  curr = parent;
+	  continue;
+	}
 
       if (curr_left)
-        {
-          if (IS_BLACK (bro->right))
-            {
-              bro->left->color = RBTREE_BLACK;
-              bro->color = RBTREE_RED;
-              rotate_right (tree, bro);
-              bro = parent->right;
-            }
-          rotate_left (tree, parent);
-          bro->right->color = RBTREE_BLACK;
-        }
+	{
+	  if (IS_BLACK (bro->right))
+	    {
+	      bro->left->color = RBTREE_BLACK;
+	      bro->color = RBTREE_RED;
+	      rotate_right (tree, bro);
+	      bro = parent->right;
+	    }
+	  rotate_left (tree, parent);
+	  bro->right->color = RBTREE_BLACK;
+	}
       else
-        {
-          if (IS_BLACK (bro->left))
-            {
-              bro->right->color = RBTREE_BLACK;
-              bro->color = RBTREE_RED;
-              rotate_left (tree, bro);
-              bro = parent->left;
-            }
-          rotate_right (tree, parent);
-          bro->left->color = RBTREE_BLACK;
-        }
+	{
+	  if (IS_BLACK (bro->left))
+	    {
+	      bro->right->color = RBTREE_BLACK;
+	      bro->color = RBTREE_RED;
+	      rotate_left (tree, bro);
+	      bro = parent->left;
+	    }
+	  rotate_right (tree, parent);
+	  bro->left->color = RBTREE_BLACK;
+	}
 
       bro->color = parent->color;
       parent->color = RBTREE_BLACK;
@@ -280,14 +280,14 @@ rbtree_prev (const rbtree_node_t *node)
 
 rbtree_node_t *
 rbtree_find (const rbtree_t *tree, const rbtree_node_t *target,
-             rbtree_comp_t *comp)
+	     rbtree_comp_t *comp)
 {
   for (rbtree_node_t *curr = tree->root; curr;)
     {
       int comp_ret = comp (target, curr);
 
       if (comp_ret == 0)
-        return curr;
+	return curr;
 
       curr = comp_ret < 0 ? curr->left : curr->right;
     }
@@ -307,14 +307,14 @@ rbtree_insert (rbtree_t *tree, rbtree_node_t *node, rbtree_comp_t *comp)
       comp_ret = comp (node, curr);
 
       if (unlikely (comp_ret == 0))
-        return NULL;
+	return NULL;
 
       parent = curr;
       curr = comp_ret < 0 ? curr->left : curr->right;
     }
 
   inpos = comp_ret ? (comp_ret < 0 ? &parent->left : &parent->right)
-                   : &tree->root;
+		   : &tree->root;
 
   rbtree_link (tree, inpos, parent, node);
 

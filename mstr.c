@@ -9,13 +9,13 @@
   do                                                                          \
     if (mstr_is_sso (str))                                                    \
       {                                                                       \
-        (str)->sso.len = new;                                                 \
-        (str)->sso.data[new] = 0;                                             \
+	(str)->sso.len = new;                                                 \
+	(str)->sso.data[new] = 0;                                             \
       }                                                                       \
     else                                                                      \
       {                                                                       \
-        (str)->heap.len = new;                                                \
-        (str)->heap.data[new] = 0;                                            \
+	(str)->heap.len = new;                                                \
+	(str)->heap.data[new] = 0;                                            \
       }                                                                       \
   while (0)
 
@@ -51,20 +51,20 @@ mstr_reserve (mstr_t *str, size_t n)
   if (mstr_is_heap (str))
     {
       if (!(data = realloc (str->heap.data, cap)))
-        return NULL;
+	return NULL;
     }
   else
     {
       if (!(data = malloc (cap)))
-        return NULL;
+	return NULL;
 
       /* copy to heap */
       size_t len = str->sso.len;
       if (memcpy (data, str->sso.data, len + 1) != data)
-        { /* copy failed */
-          free (data);
-          return NULL;
-        }
+	{ /* copy failed */
+	  free (data);
+	  return NULL;
+	}
 
       /* save length */
       str->heap.len = len;
@@ -139,13 +139,13 @@ mstr_format (mstr_t *str, const char *fmt, ...)
   if (need < 0)
     goto err;
 
-  if ((size_t)need >= cap)
+  if ((size_t) need >= cap)
     {
       cap = need + 1;
       if (mstr_reserve (&new, cap) != &new)
-        goto err;
+	goto err;
       if (vsnprintf (new.heap.data, cap, fmt, copy) < 0)
-        goto err;
+	goto err;
     }
 
   set_len (&new, need);
@@ -181,16 +181,16 @@ mstr_trim (mstr_t *str, const char *s)
   if (s && (sn = strlen (s)))
     {
       for (; start <= end && memchr (s, *start, sn);)
-        start++;
+	start++;
       for (; end >= start && memchr (s, *end, sn);)
-        end--;
+	end--;
     }
   else
     {
       for (; start <= end && isspace (*start);)
-        start++;
+	start++;
       for (; end >= start && isspace (*end);)
-        end--;
+	end--;
     }
 
   if (!(newlen = end - start + 1))

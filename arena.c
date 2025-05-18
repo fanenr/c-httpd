@@ -69,7 +69,7 @@ arena_aligned_alloc (arena_t *pool, size_t size, size_t align)
   if (size >= ARENA_BLOCK_SIZE)
     return huge_alloc (pool, size);
 
-  size_t padding = (size_t)pool->pos % align;
+  size_t padding = (size_t) pool->pos % align;
   padding = padding ? align - padding : 0;
   void *ptr = pool->pos + padding;
 
@@ -85,7 +85,7 @@ arena_aligned_alloc (arena_t *pool, size_t size, size_t align)
 
 void *
 arena_aligned_realloc (arena_t *pool, void *oldptr, size_t oldsiz,
-                       size_t newsiz, size_t align)
+		       size_t newsiz, size_t align)
 {
   void *ptr = arena_aligned_alloc (pool, newsiz, align);
 
@@ -113,10 +113,10 @@ alloc (arena_t *pool, size_t size)
       cap = cap ? cap * 2 : 8;
 
       if (!(data = realloc (data, cap * sizeof (void *))))
-        {
-          free (block);
-          return NULL;
-        }
+	{
+	  free (block);
+	  return NULL;
+	}
 
       pool->blocks.data = data;
       pool->blocks.cap = cap;

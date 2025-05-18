@@ -40,7 +40,7 @@ union mstr_t
   (mstr_t) {}
 
 #define MSTR_VIEW(src, size)                                                  \
-  (mstr_t) { .heap = { .data = (char *)(src), .len = (size), .cap = 1 }, }
+  (mstr_t) { .heap = { .data = (char *) (src), .len = (size), .cap = 1 }, }
 
 #define mstr_is_sso(str) ((str)->sso.flg == MSTR_FLG_SSO)
 #define mstr_is_heap(str) ((str)->sso.flg == MSTR_FLG_HEAP)
@@ -71,7 +71,7 @@ extern mstr_t *mstr_remove (mstr_t *str, size_t start, size_t n)
 /* substr */
 
 extern mstr_t *mstr_substr (mstr_t *save, const mstr_t *from, size_t start,
-                            size_t n) attr_nonnull (1, 2);
+			    size_t n) attr_nonnull (1, 2);
 
 /* format */
 
@@ -200,7 +200,7 @@ mstr_cat_mstr (mstr_t *str, const mstr_t *other)
 /* insert */
 
 extern mstr_t *mstr_insert_byte (mstr_t *str, size_t pos, const void *src,
-                                 size_t n) attr_nonnull (1, 3);
+				 size_t n) attr_nonnull (1, 3);
 
 static inline mstr_t *
 mstr_insert_char (mstr_t *str, size_t pos, char ch)

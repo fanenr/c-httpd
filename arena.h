@@ -32,13 +32,13 @@ extern void arena_free (arena_t *pool) attr_nonnull (1);
 extern void *arena_alloc (arena_t *pool, size_t size) attr_nonnull (1);
 
 extern void *arnea_realloc (arena_t *pool, void *oldptr, size_t oldsiz,
-                            size_t newsiz) attr_nonnull (1);
+			    size_t newsiz) attr_nonnull (1);
 
 extern void *arena_aligned_alloc (arena_t *pool, size_t size, size_t align)
     attr_nonnull (1);
 
 extern void *arena_aligned_realloc (arena_t *pool, void *oldptr, size_t oldsiz,
-                                    size_t newsiz, size_t align)
+				    size_t newsiz, size_t align)
     attr_nonnull (1);
 
 #endif

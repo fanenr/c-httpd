@@ -102,7 +102,7 @@ init_clean (threadpool_t *pool, size_t init)
 int
 threadpool_init (threadpool_t *pool, size_t n)
 {
-  *pool = (threadpool_t){ .status = THREADPOOL_STS_RUN };
+  *pool = (threadpool_t) { .status = THREADPOOL_STS_RUN };
 
   if (0 != pthread_mutex_init (&pool->mtx, NULL))
     return THREADPOOL_ERR_MTX;
@@ -141,9 +141,9 @@ threadpool_post (threadpool_t *pool, threadpool_func_t *f, void *a)
   if ((status = pool->status) != THREADPOOL_STS_QUIT)
     {
       if (pool->tail)
-        pool->tail->next = task;
+	pool->tail->next = task;
       else
-        pool->head = task;
+	pool->head = task;
       pool->tail = task;
     }
   pthread_mutex_unlock (&pool->mtx);
@@ -176,19 +176,19 @@ work (void *arg)
 
       pthread_mutex_lock (&pool->mtx);
       for (; (pool->status == THREADPOOL_STS_RUN && !pool->head)
-             || pool->status == THREADPOOL_STS_STOP;)
-        pthread_cond_wait (&pool->cond, &pool->mtx);
+	     || pool->status == THREADPOOL_STS_STOP;)
+	pthread_cond_wait (&pool->cond, &pool->mtx);
 
       if ((status = pool->status) != THREADPOOL_STS_QUIT)
-        {
-          task = pool->head;
-          if (!(pool->head = task->next))
-            pool->tail = NULL;
-        }
+	{
+	  task = pool->head;
+	  if (!(pool->head = task->next))
+	    pool->tail = NULL;
+	}
       pthread_mutex_unlock (&pool->mtx);
 
       if (status == THREADPOOL_STS_QUIT)
-        break;
+	break;
 
       task->func (task->arg);
       __atomic_fetch_sub (&pool->remain, 1, __ATOMIC_RELAXED);

@@ -85,7 +85,7 @@ static bool send_file (context_t *ctx, resource_t *res);
 static bool send_data (context_t *ctx, const void *data, size_t n);
 
 static int header_init (char *dst, int max, int code, const char *msg,
-                        resource_t *res);
+			resource_t *res);
 
 void
 server_free (server_t *serv)
@@ -151,7 +151,7 @@ server_init (server_t *serv, const server_config_t *conf)
   serv->mpool = ARENA_INIT;
 
   /* init addr */
-  serv->addr = (sockaddr4_t){
+  serv->addr = (sockaddr4_t) {
     .sin_family = AF_INET,
     .sin_port = htons (port),
     .sin_addr.s_addr = htonl (INADDR_ANY),
@@ -180,7 +180,7 @@ server_init (server_t *serv, const server_config_t *conf)
     reto (HTTPD_ERR_SERVER_INIT_SOCK, clean_tpool);
 
   /* bind addr */
-  if (bind (serv->sock, (void *)&serv->addr, sizeof (serv->addr)) != 0)
+  if (bind (serv->sock, (void *) &serv->addr, sizeof (serv->addr)) != 0)
     reto (HTTPD_ERR_SERVER_INIT_BIND, clean_sock);
 
   /* listen */
@@ -193,7 +193,7 @@ server_init (server_t *serv, const server_config_t *conf)
       int opt = true;
       socklen_t len = sizeof (int);
       if (setsockopt (serv->sock, SOL_SOCKET, SO_REUSEADDR, &opt, len) != 0)
-        reto (HTTPD_ERR_SERVER_INIT_REUSEADDR, clean_sock);
+	reto (HTTPD_ERR_SERVER_INIT_REUSEADDR, clean_sock);
     }
 
   return 0;
@@ -245,14 +245,14 @@ request_init (request_t *req, context_t *ctx)
   /* init method */
   req->method = HTTPD_METHOD_EXTENSION;
 
-  static const char *methods[] = { "GET",   "PUT",    "HEAD",    "POST",
-                                   "TRACE", "DELETE", "OPTIONS", "CONNECT" };
+  static const char *methods[] = { "GET",   "PUT",    "HEAD",	 "POST",
+				   "TRACE", "DELETE", "OPTIONS", "CONNECT" };
 
   for (int i = 0; i < HTTPD_METHOD_EXTENSION; i++)
     if (strncmp (pos, methods[i], len) == 0)
       {
-        req->method = i;
-        break;
+	req->method = i;
+	break;
       }
 
   pos = end + 1;
@@ -284,34 +284,34 @@ request_init (request_t *req, context_t *ctx)
   for (header_t *hdr;;)
     {
       if (!fgets (line, MAX_REQLINE_LEN, ctx->in))
-        reto (HTTPD_ERR_REQUEST_INIT_LINE, clean_uri);
+	reto (HTTPD_ERR_REQUEST_INIT_LINE, clean_uri);
 
       size_t len = strlen (line);
       char *pos = line, *sep, *end;
 
       /* end of parsing */
       if (len == 2 && pos[0] == '\r' && pos[1] == '\n')
-        return 0;
+	return 0;
 
       /* init sep and end */
       if (!(sep = strchr (pos, ':')) || !(end = strchr (sep, '\r')))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
+	reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
 
       /* init header */
       if (!(hdr = malloc (sizeof (header_t))))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
+	reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdrs);
 
       ptrdiff_t field_len = sep - pos;
       hdr->field = hdr->value = MSTR_INIT;
 
       if (field_len <= 0 || !mstr_assign_byte (&hdr->field, pos, field_len))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdr);
+	reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_hdr);
 
       if (!mstr_assign_byte (&hdr->value, sep + 1, end - sep - 1))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_field);
+	reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_field);
 
       if (!header_insert (&req->headers, hdr))
-        reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_value);
+	reto (HTTPD_ERR_REQUEST_INIT_HEADERS, clean_value);
 
       mstr_trim (&hdr->value, " \t");
 
@@ -439,10 +439,10 @@ static void
 serve_not_found (context_t *ctx)
 {
   static const char *res = "HTTP/1.1 404 NOT FOUND\r\n"
-                           "Server: httpd\r\n"
-                           "Content-Type: text/html\r\n"
-                           "Content-Length: 13\r\n\r\n"
-                           "404 NOT FOUND";
+			   "Server: httpd\r\n"
+			   "Content-Type: text/html\r\n"
+			   "Content-Length: 13\r\n\r\n"
+			   "404 NOT FOUND";
   send_data (ctx, res, 99);
 }
 
@@ -468,11 +468,11 @@ resource_get (context_t *ctx)
   if (S_ISDIR (info.st_mode))
     for (int i = 0; i < indexs_size; i++)
       {
-        strcpy (path + path_len, indexs[i]);
-        if (stat (path, &info) == 0 && S_ISREG (info.st_mode))
-          break;
-        if (i == indexs_size - 1)
-          return NULL;
+	strcpy (path + path_len, indexs[i]);
+	if (stat (path, &info) == 0 && S_ISREG (info.st_mode))
+	  break;
+	if (i == indexs_size - 1)
+	  return NULL;
       }
 
   return respool_get (&serv->rpool, path);
@@ -503,11 +503,11 @@ header_init (char *dst, int max, int code, const char *msg, resource_t *res)
     mime = "text/plain";
 
   static const char *format = "HTTP/1.1 %d %s"
-                              "\r\n"
-                              "Server: httpd\r\n"
-                              "Content-Type: %s\r\n"
-                              "Content-Length: %lu\r\n"
-                              "\r\n";
+			      "\r\n"
+			      "Server: httpd\r\n"
+			      "Content-Type: %s\r\n"
+			      "Content-Length: %lu\r\n"
+			      "\r\n";
 
   return snprintf (dst, max, format, code, msg, mime, size);
 }
